@@ -69,6 +69,7 @@ typedef struct elasticache_url {
     char *fragment;
 } elasticache_url;
 
+static void elasticache_debug(const char *format, ...);
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
 static struct timeval _convert_ms_to_tv(long ms);

@@ -41,6 +41,8 @@ ZEND_DECLARE_MODULE_GLOBALS(elasticache)
 
 static PHP_INI_MH(OnUpdateEndpoints)
 {
+    elasticache_debug("endpoints updated");
+
     /* Parse the endpoints into a list of endpoint name -> host[:port] */
     elasticache_parse_endpoints(new_value);
 
