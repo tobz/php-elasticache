@@ -177,6 +177,8 @@ static void elasticache_parse_endpoints(char *endpoints)
         elasticache_debug("freeing url object for endpoint '%s'", endpointName);
         /* Free the URL object. */
         elasticache_free_url(url);
+
+        endpoint = strtok(NULL, ",");
     }
 }
 
