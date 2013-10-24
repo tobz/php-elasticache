@@ -190,9 +190,8 @@ static void elasticache_parse_endpoints(char *endpoints)
 static void elasticache_update()
 {
     char *endpoint, *endpointName, *errmsg;
-    zval **data, **tmp;
-    zval *tmp2, *arr;
-    zval tmp3;
+    zval **data;
+    zval *tmp3, tmp2, *arr;
     int key_len;
     long index;
     HashTable *ht;
@@ -217,6 +216,7 @@ static void elasticache_update()
     ht = EC_G(endpoints);
 
     /* Get our array to shove in $_SERVER. */
+    MAKE_STD_ZVAL(arr);
     array_init(arr);
 
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
@@ -232,10 +232,7 @@ static void elasticache_update()
         elasticache_debug("found endpoint '%s' while going down our list of endpoints", endpointName);
 
         /* Get the endpoint value. */
-        tmp3 = **data;
-        zval_copy_ctor(&tmp3);
-        convert_to_string(&tmp3);
-        endpoint = Z_STRVAL(tmp3);
+        endpoint = Z_STRVAL_PP(data);
 
         /* Now contact the configuration node and see if they have anything for us. */
         tmp2 = elasticache_grab_configuration(endpointName, endpoint, errmsg);
