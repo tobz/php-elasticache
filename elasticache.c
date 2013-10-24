@@ -53,6 +53,20 @@ PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpoint_refresh_timeout, zend_elasticache_globals, elasticache_globals)
 PHP_INI_END()
 
+static void elasticache_debug(const char *format, ...)
+{
+	TSRMLS_FETCH();
+
+	char buffer[1024];
+	va_list args;
+
+	va_start(args, format);
+	vsnprintf(buffer, sizeof(buffer)-1, format, args);
+	va_end(args);
+	buffer[sizeof(buffer)-1] = '\0';
+	php_printf("%s\n", buffer);
+}
+
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
 {
     int ret = 0;
@@ -65,6 +79,8 @@ static void elasticache_init_globals(zend_elasticache_globals *elasticache_globa
     EC_G(endpoints) = endpoints;
     EC_G(endpoint_refresh_interval) = 1000;
     EC_G(endpoint_refresh_timeout) = 250;
+
+    elasticache_debug("initializing globals");
 }
 
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
@@ -109,6 +125,8 @@ static void elasticache_parse_endpoints(char *endpoints)
     if(!endpoints || !strlen(endpoints))
         return;
 
+    elasticache_debug("parsing endpoints");
+
     /* Go through the list of endpoints, parsing each accordingly. */
     endpoint = strtok(endpoints, ",");
     while(endpoint)
@@ -137,6 +155,8 @@ static void elasticache_parse_endpoints(char *endpoints)
         /* Build our final hostname that we'll connect to. */
         spprintf(&hostname, 0, "%s:%d", url->host, url->port);
 
+        elasticache_debug("got endpoint '%s' from list", hostname);
+
         MAKE_STD_ZVAL(tmp);
         ZVAL_STRING(tmp, hostname, 1);
         efree(hostname);
@@ -146,11 +166,15 @@ static void elasticache_parse_endpoints(char *endpoints)
 
         if(zend_hash_exists(EC_G(endpoints), endpointName, strlen(endpointName) + 1))
         {
+            elasticache_debug("replacing existing endpoint '%s' with updated version", endpointName);
             zend_hash_del(EC_G(endpoints), endpointName, strlen(endpointName) + 1);
         }
 
+        elasticache_debug("adding in new version of endpoint '%s'", endpointName);
         zend_hash_add(EC_G(endpoints), endpointName, strlen(endpointName) + 1, tmp, sizeof(zval *), NULL);
 
+
+        elasticache_debug("freeing url object for endpoint '%s'", endpointName);
         /* Free the URL object. */
         elasticache_free_url(url);
     }
@@ -171,11 +195,17 @@ static void elasticache_update()
 
     /* If it's not time to refresh, bail out. */
     if(!elasticache_should_refresh())
+    {
+        elasticache_debug("refresh attempted, not time yet");
         return;
+    }
 
     /* If we have no endpoints, we definitely don't have anything to update. */
     if(!strlen(EC_G(raw_endpoints)))
+    {
+        elasticache_debug("refresh attempted, but no endpoints");
         return;
+    }
 
     ht = EC_G(endpoints);
 
@@ -192,6 +222,8 @@ static void elasticache_update()
             continue;
         }
 
+        elasticache_debug("found endpoint '%s' while going down our list of endpoints", endpointName);
+
         /* Get the endpoint value. */
         tmp3 = **data;
         zval_copy_ctor(&tmp3);
@@ -199,11 +231,15 @@ static void elasticache_update()
         endpoint = Z_STRVAL(tmp3);
 
         /* Now contact the configuration node and see if they have anything for us. */
-        tmp2 = elasticache_grab_configuration(endpointName, endpoint, NULL);
+        tmp2 = elasticache_grab_configuration(endpointName, endpoint, errmsg);
         if(tmp2)
         {
+            elasticache_debug("got back nodes for endpoint '%s'", endpointName);
             /* We got back node(s), so push in our array for the given endpoint name. */
             add_assoc_zval(arr, endpointName, tmp2);
+        } else if(errmsg) {
+            elasticache_debug("got error message from elasticache_grab_configuration on endpoint '%s': %s", endpointName, errmsg);
+            efree(errmsg);
         }
     }
 
