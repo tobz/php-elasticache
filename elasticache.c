@@ -180,6 +180,7 @@ static void elasticache_parse_endpoints(char *endpoints)
         /* Free the URL object. */
         elasticache_free_url(url);
 
+        elasticache_debug("trying next match in list");
         endpoint = strtok(NULL, ",");
     }
 }
