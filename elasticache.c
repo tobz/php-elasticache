@@ -183,6 +183,8 @@ static void elasticache_parse_endpoints(char *endpoints)
         elasticache_debug("trying next match in list");
         endpoint = strtok(NULL, ",");
     }
+
+    elasticache_debug("all done parsing endpoints");
 }
 
 static void elasticache_update()
