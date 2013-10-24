@@ -53,26 +53,6 @@ PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpoint_refresh_timeout, zend_elasticache_globals, elasticache_globals)
 PHP_INI_END()
 
-PHP_FUNCTION(elasticache_version)
-{
-    if(zend_parse_parameters_none() == FAILURE) {
-        return;
-    }
-
-    RETURN_STRING(PHP_ELASTICACHE_EXTVER, 1);
-}
-
-
-PHP_RINIT_FUNCTION(elasticache)
-{
-    return SUCCESS;
-}
-
-PHP_RSHUTDOWN_FUNCTION(elasticache)
-{
-    return SUCCESS;
-}
-
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
 {
     int ret = 0;
@@ -905,6 +885,28 @@ end:
     return ret;
 }
 
+PHP_FUNCTION(elasticache_version)
+{
+    if(zend_parse_parameters_none() == FAILURE) {
+        return;
+    }
+
+    RETURN_STRING(PHP_ELASTICACHE_EXTVER, 1);
+}
+
+
+PHP_RINIT_FUNCTION(elasticache)
+{
+    elasticache_update();
+
+    return SUCCESS;
+}
+
+PHP_RSHUTDOWN_FUNCTION(elasticache)
+{
+    return SUCCESS;
+}
+
 PHP_MINIT_FUNCTION(elasticache)
 {
 #ifdef ZTS
@@ -915,6 +917,8 @@ PHP_MINIT_FUNCTION(elasticache)
 #endif
 
     REGISTER_INI_ENTRIES();
+
+    elasticache_update();
 
     return SUCCESS;
 }
