@@ -66,4 +66,5 @@ tests/*/*/*.diff
 tests/*/*/*.php
 tests/*/*/*.exp
 tests/*/*/*.sh
+php_test_results_*.txt
 tmp-php.ini
