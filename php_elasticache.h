@@ -75,7 +75,7 @@ static struct timeval _convert_ms_to_tv(long ms);
 static int elasticache_should_refresh();
 static void elasticache_parse_endpoints(char *endpoints);
 static void elasticache_update();
-static int elasticache_grab_configuration(char *endpointName, char *endpoint, char *errmsg);
+static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, char *errmsg);
 static zval *elasticache_parse_nodes(char *response, int response_len, int *node_count);
 static int elasticache_sendcmd(php_stream *stream, char *cmd);
 static int elasticache_read_value(php_stream *stream, char *buf, int buf_len, char **value, int *value_len);

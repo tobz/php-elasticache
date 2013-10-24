@@ -230,12 +230,12 @@ static void elasticache_update()
     /* Now set the $_SERVER global with our aggregate array. */
     if(zend_hash_find(&EG(symbol_table), "_SERVER", 8, (void**)&tmp) != FAILURE)
     {
-        if(zend_hash_exists(Z_ARRVAL_PP(tmp), "ELASTICACHE", strlen(endpointName) + 1))
+        if(zend_hash_exists(Z_ARRVAL_PP(tmp), "ELASTICACHE", sizeof("ELASTICACHE")))
         {
-            zend_hash_del(Z_ARRVAL_PP(tmp), "ELASTICACHE", strlen(endpointName) + 1);
+            zend_hash_del(Z_ARRVAL_PP(tmp), "ELASTICACHE", sizeof("ELASTICACHE"));
         }
 
-        zend_hash_add
+        add_assoc_zval(*tmp, "ELASTICACHE", arr);
     }
 
     /* Mark our last refresh time as now. */
@@ -305,7 +305,7 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     }
 
     /* We now have our response, so now parse it. */
-    tmp = elasticache_parse_nodes(response, response_len, endpointName, &node_count);
+    tmp = elasticache_parse_nodes(response, response_len, &node_count);
     if(!node_count) {
         /* No nodes... that ain't right.  Bail out, yo! */
         if(errmsg)
@@ -414,7 +414,7 @@ static zval *elasticache_parse_nodes(char *response, int response_len, int *node
         /* Add the node to our list. */
         spprintf(&nodeFull, 0, "%s:%d", nodeFqdn, nodePort);
 
-        add_assoc_string(arr, endpointName, nodeFull, 1);
+        add_next_index_string(arr, nodeFull, 1);
 
         efree(nodeFull);
     }
