@@ -190,8 +190,8 @@ static void elasticache_parse_endpoints(char *endpoints)
 static void elasticache_update()
 {
     char *endpoint, *endpointName, *errmsg;
-    zval **data;
-    zval *tmp3, tmp2, *arr;
+    zval **data, **tmp2;
+    zval *tmp, *arr;
     int key_len;
     long index;
     HashTable *ht;
@@ -235,12 +235,12 @@ static void elasticache_update()
         endpoint = Z_STRVAL_PP(data);
 
         /* Now contact the configuration node and see if they have anything for us. */
-        tmp2 = elasticache_grab_configuration(endpointName, endpoint, errmsg);
-        if(tmp2)
+        tmp = elasticache_grab_configuration(endpointName, endpoint, errmsg);
+        if(tmp)
         {
             elasticache_debug("got back nodes for endpoint '%s'", endpointName);
             /* We got back node(s), so push in our array for the given endpoint name. */
-            add_assoc_zval(arr, endpointName, tmp2);
+            add_assoc_zval(arr, endpointName, tmp);
         } else if(errmsg) {
             elasticache_debug("got error message from elasticache_grab_configuration on endpoint '%s': %s", endpointName, errmsg);
             efree(errmsg);
@@ -248,14 +248,14 @@ static void elasticache_update()
     }
 
     /* Now set the $_SERVER global with our aggregate array. */
-    if(zend_hash_find(&EG(symbol_table), "_SERVER", 8, (void**)&tmp) != FAILURE)
+    if(zend_hash_find(&EG(symbol_table), "_SERVER", 8, (void**)&tmp2) != FAILURE)
     {
-        if(zend_hash_exists(Z_ARRVAL_PP(tmp), "ELASTICACHE", sizeof("ELASTICACHE")))
+        if(zend_hash_exists(Z_ARRVAL_PP(tmp2), "ELASTICACHE", sizeof("ELASTICACHE")))
         {
-            zend_hash_del(Z_ARRVAL_PP(tmp), "ELASTICACHE", sizeof("ELASTICACHE"));
+            zend_hash_del(Z_ARRVAL_PP(tmp2), "ELASTICACHE", sizeof("ELASTICACHE"));
         }
 
-        add_assoc_zval(*tmp, "ELASTICACHE", arr);
+        add_assoc_zval(*tmp2, "ELASTICACHE", arr);
     }
 
     /* Mark our last refresh time as now. */
