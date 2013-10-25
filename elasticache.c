@@ -44,7 +44,7 @@ static PHP_INI_MH(OnUpdateEndpoints)
     elasticache_debug("endpoints updated");
 
     /* Parse the endpoints into a list of endpoint name -> host[:port] */
-    elasticache_parse_endpoints(new_value);
+    elasticache_parse_endpoints(new_value TSRMLS_CC);
 
     return OnUpdateString(entry, new_value, new_value_length, mh_arg1, mh_arg2, mh_arg3, stage TSRMLS_CC);
 }
@@ -101,7 +101,7 @@ static struct timeval _convert_ms_to_tv(long ms)
     return tv;
 }
 
-static int elasticache_should_refresh()
+static int elasticache_should_refresh(TSRMLS_DC)
 {
     time_t secDiff;
     long nanoDiff, msDiff;
@@ -117,7 +117,7 @@ static int elasticache_should_refresh()
     return msDiff > EC_G(endpoint_refresh_interval);
 }
 
-static void elasticache_parse_endpoints(char *endpoints)
+static void elasticache_parse_endpoints(char *endpoints TSRMLS_DC)
 {
     elasticache_url *url = NULL;
     char *endpoint, *endpointName, *hostname = NULL;
@@ -187,7 +187,7 @@ static void elasticache_parse_endpoints(char *endpoints)
     elasticache_debug("all done parsing endpoints");
 }
 
-static void elasticache_update()
+static void elasticache_update(TSRMLS_DC)
 {
     char *endpoint, *endpointName, *errmsg;
     zval **data, **tmp2;
@@ -200,7 +200,7 @@ static void elasticache_update()
     errmsg = "";
 
     /* If it's not time to refresh, bail out. */
-    if(!elasticache_should_refresh())
+    if(!elasticache_should_refresh(TSRMLS_CC))
     {
         elasticache_debug("refresh attempted, not time yet");
         return;
@@ -235,7 +235,7 @@ static void elasticache_update()
         endpoint = Z_STRVAL_PP(data);
 
         /* Now contact the configuration node and see if they have anything for us. */
-        tmp = elasticache_grab_configuration(endpointName, endpoint, errmsg);
+        tmp = elasticache_grab_configuration(endpointName, endpoint, errmsg TSRMLS_CC);
         if(tmp)
         {
             elasticache_debug("got back nodes for endpoint '%s'", endpointName);
@@ -257,7 +257,7 @@ static void elasticache_update()
     clock_gettime(CLOCK_MONOTONIC, &EC_G(endpoint_last_refresh));
 }
 
-static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, char *errmsg)
+static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, char *errmsg TSRMLS_DC)
 {
     php_stream *stream;
     struct timeval tv;
@@ -291,7 +291,7 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     php_stream_set_option(stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL);
 
     /* Send the command to get the cluster configuration. */
-    if(elasticache_sendcmd(stream, "config get cluster") < 0)
+    if(elasticache_sendcmd(stream, "config get cluster" TSRMLS_CC) < 0)
     {
         if(errmsg)
         {
@@ -301,7 +301,7 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     }
 
     /* Get the result back. */
-    if((result = elasticache_read_value(stream, &buf[0], sizeof(buf), &response, &response_len)) < 0)
+    if((result = elasticache_read_value(stream, &buf[0], sizeof(buf), &response, &response_len TSRMLS_CC)) < 0)
     {
         if(errmsg)
         {
@@ -443,7 +443,7 @@ static zval *elasticache_parse_nodes(char *response, int response_len, int *node
     efree(nodes);
 }
 
-static int elasticache_sendcmd(php_stream *stream, char *cmd)
+static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC)
 {
     char *command;
     int command_len, cmdlen;
@@ -474,13 +474,13 @@ static int elasticache_sendcmd(php_stream *stream, char *cmd)
     return 1;
 }
 
-static int elasticache_read_value(php_stream *stream, char *buf, int buf_len, char **value, int *value_len)
+static int elasticache_read_value(php_stream *stream, char *buf, int buf_len, char **value, int *value_len TSRMLS_DC)
 {
     char *data;
     int response_len, data_len, i, size, flags;
 
     /* read "VALUE <key> <flags> <bytes>\r\n" header line */
-    if ((response_len = elasticache_readline(stream, buf, buf_len)) < 0) {
+    if ((response_len = elasticache_readline(stream, buf, buf_len TSRMLS_CC)) < 0) {
         /* todo: send back up error message that we couldn't parse server's response */
         return -1;
     }
@@ -514,7 +514,7 @@ static int elasticache_read_value(php_stream *stream, char *buf, int buf_len, ch
     return 1;
 }
 
-static int elasticache_readline(php_stream *stream, char *buf, int buf_len)
+static int elasticache_readline(php_stream *stream, char *buf, int buf_len TSRMLS_DC)
 {
     char *response;
     size_t response_len;
