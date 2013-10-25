@@ -109,7 +109,7 @@ static int elasticache_should_refresh(TSRMLS_D)
 
     /* This is our first check ever, which means we need to refresh. */
     if(EC_G(endpoint_last_refresh).tv_sec == 0)
-        return true;
+        return 1;
 
     clock_gettime(CLOCK_MONOTONIC, &currentTime);
 
