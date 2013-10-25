@@ -101,7 +101,7 @@ static struct timeval _convert_ms_to_tv(long ms)
     return tv;
 }
 
-static int elasticache_should_refresh(TSRMLS_DC)
+static int elasticache_should_refresh(TSRMLS_D)
 {
     time_t secDiff;
     long nanoDiff, msDiff;
@@ -187,7 +187,7 @@ static void elasticache_parse_endpoints(char *endpoints TSRMLS_DC)
     elasticache_debug("all done parsing endpoints");
 }
 
-static void elasticache_update(TSRMLS_DC)
+static void elasticache_update(TSRMLS_D)
 {
     char *endpoint, *endpointName, *errmsg;
     zval **data, **tmp2;
@@ -200,7 +200,7 @@ static void elasticache_update(TSRMLS_DC)
     errmsg = "";
 
     /* If it's not time to refresh, bail out. */
-    if(!elasticache_should_refresh(TSRMLS_CC))
+    if(!elasticache_should_refresh(TSRMLS_C))
     {
         elasticache_debug("refresh attempted, not time yet");
         return;
@@ -932,7 +932,7 @@ PHP_FUNCTION(elasticache_version)
 
 PHP_RINIT_FUNCTION(elasticache)
 {
-    elasticache_update();
+    elasticache_update(TSRMLS_C);
 
     return SUCCESS;
 }
@@ -953,7 +953,7 @@ PHP_MINIT_FUNCTION(elasticache)
 
     REGISTER_INI_ENTRIES();
 
-    elasticache_update();
+    elasticache_update(TSRMLS_C);
 
     return SUCCESS;
 }
