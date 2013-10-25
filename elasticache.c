@@ -238,11 +238,8 @@ static void elasticache_update(TSRMLS_D)
 
         elasticache_debug("found endpoint '%s' while going down our list of endpoints", endpointName);
 
-        /* Get the endpoint value. */
-        endpoint = Z_STRVAL_PP(data);
-
         /* Now contact the configuration node and see if they have anything for us. */
-        tmp = elasticache_grab_configuration(endpointName, endpoint, errmsg TSRMLS_CC);
+        tmp = elasticache_grab_configuration(endpointName, Z_STRVAL_PP(data), Z_STRLEN_PP(data), errmsg TSRMLS_CC);
         if(tmp)
         {
             elasticache_debug("got back nodes for endpoint '%s'", endpointName);
@@ -264,7 +261,7 @@ static void elasticache_update(TSRMLS_D)
     clock_gettime(CLOCK_MONOTONIC, &EC_G(endpoint_last_refresh));
 }
 
-static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, char *errmsg TSRMLS_DC)
+static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, int endpoint_len, char *errmsg TSRMLS_DC)
 {
     php_stream *stream;
     struct timeval tv;
@@ -278,7 +275,7 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     tv.tv_usec = EC_G(endpoint_refresh_timeout) * 1000;
 
     /* Get our stream and connect to the endpoint. */
-    stream = php_stream_xport_create(endpoint, strlen(endpoint), ENFORCE_SAFE_MODE | REPORT_ERRORS,
+    stream = php_stream_xport_create(endpoint, endpoint_len, ENFORCE_SAFE_MODE | REPORT_ERRORS,
         STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, hash_key, &tv, NULL, &errmsg2, &errcode);
 
     /* Make sure we got our stream successfully. */
