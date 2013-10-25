@@ -106,6 +106,11 @@ static int elasticache_should_refresh(TSRMLS_D)
     time_t secDiff;
     long nanoDiff, msDiff;
     struct timespec currentTime;
+
+    /* This is our first check ever, which means we need to refresh. */
+    if(EC_G(endpoint_last_refresh).tv_sec == 0)
+        return true;
+
     clock_gettime(CLOCK_MONOTONIC, &currentTime);
 
     secDiff = currentTime.tv_sec - EC_G(endpoint_last_refresh).tv_sec;
@@ -205,6 +210,8 @@ static void elasticache_update(TSRMLS_D)
         elasticache_debug("refresh attempted, not time yet");
         return;
     }
+
+    elasticache_debug("attempting to refresh");
 
     /* If we have no endpoints, we definitely don't have anything to update. */
     if(!strlen(EC_G(raw_endpoints)))
