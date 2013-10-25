@@ -248,14 +248,9 @@ static void elasticache_update()
     }
 
     /* Now set the $_SERVER global with our aggregate array. */
-    if(zend_hash_find(&EG(symbol_table), "_SERVER", 8, (void**)&tmp2) != FAILURE)
+    if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&tmp2) == SUCCESS)
     {
-        if(zend_hash_exists(Z_ARRVAL_PP(tmp2), "ELASTICACHE", sizeof("ELASTICACHE")))
-        {
-            zend_hash_del(Z_ARRVAL_PP(tmp2), "ELASTICACHE", sizeof("ELASTICACHE"));
-        }
-
-        add_assoc_zval(*tmp2, "ELASTICACHE", arr);
+        zend_hash_update(Z_ARRVAL_PP(tmp2), "ELASTICACHE", sizeof("ELASTICACHE"), &arr, sizeof(zval*), NULL);
     }
 
     /* Mark our last refresh time as now. */
