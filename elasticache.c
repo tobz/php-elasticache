@@ -195,13 +195,9 @@ static void elasticache_parse_endpoints(char *endpoints TSRMLS_DC)
 static void elasticache_update(TSRMLS_D)
 {
     char *endpoint, *endpointName, *errmsg;
-    zval **data, **tmp2;
-    zval *tmp, *arr;
-    int key_len;
-    long index;
+    zval **existingArr;
+    zval *newArr, *tmp;
     HashTable *ht;
-    HashPosition ptr;
-
     errmsg = "";
 
     /* If it's not time to refresh, bail out. */
@@ -223,28 +219,38 @@ static void elasticache_update(TSRMLS_D)
     ht = EC_G(endpoints);
 
     /* Get our array to shove in $_SERVER. */
-    MAKE_STD_ZVAL(arr);
-    array_init(arr);
+    MAKE_STD_ZVAL(newArr);
+    array_init(newArr);
 
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
-    for(ZEND_HASH_RESET(ht, &ptr); ZEND_HASH_GET_DATA(ht, (void**)&data, &ptr) == SUCCESS; ZEND_HASH_FORWARD(ht, &ptr))
-    {
-        /* Get the endpoint name. */
-        ZEND_HASH_GET_KEY(ht, &endpointName, &key_len, &index, &ptr);
-        if(!endpointName)
-        {
+    for(zend_hash_internal_pointer_reset(ht);
+    zend_hash_has_more_elements(ht) == SUCCESS;
+    zend_hash_move_forward(ht)) {
+        char *endpointName;
+        uint keylen;
+        ulong idx;
+        int type;
+        zval **ppzval, tmpcopy;
+
+        type = zend_hash_get_current_key_ex(ht, &endpointName, &keylen, &idx, 0, NULL);
+        if(zend_hash_get_current_data(ht, (void**)&ppzval) == FAILURE) {
             continue;
         }
 
         elasticache_debug("found endpoint '%s' while going down our list of endpoints", endpointName);
 
+        tmpcopy = **ppzval;
+        zval_copy_ctor(&tmpcopy);
+        INIT_PZVAL(&tmpcopy);
+        convert_to_string(&tmpcopy);
+
         /* Now contact the configuration node and see if they have anything for us. */
-        tmp = elasticache_grab_configuration(endpointName, Z_STRVAL_PP(data), Z_STRLEN_PP(data), errmsg TSRMLS_CC);
+        tmp = elasticache_grab_configuration(endpointName, Z_STRVAL(tmpcopy), Z_STRLEN(tmpcopy), errmsg TSRMLS_CC);
         if(tmp)
         {
             elasticache_debug("got back nodes for endpoint '%s'", endpointName);
             /* We got back node(s), so push in our array for the given endpoint name. */
-            add_assoc_zval(arr, endpointName, tmp);
+            add_assoc_zval(newArr, endpointName, tmp);
         } else if(errmsg) {
             elasticache_debug("got error message from elasticache_grab_configuration on endpoint '%s': %s", endpointName, errmsg);
             efree(errmsg);
@@ -252,9 +258,9 @@ static void elasticache_update(TSRMLS_D)
     }
 
     /* Now set the $_SERVER global with our aggregate array. */
-    if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&tmp2) == SUCCESS)
+    if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&existingArr) == SUCCESS)
     {
-        zend_hash_update(Z_ARRVAL_PP(tmp2), "ELASTICACHE", sizeof("ELASTICACHE"), &arr, sizeof(zval*), NULL);
+        zend_hash_update(Z_ARRVAL_PP(existingArr), "ELASTICACHE", sizeof("ELASTICACHE"), &newArr, sizeof(zval*), NULL);
     }
 
     /* Mark our last refresh time as now. */
