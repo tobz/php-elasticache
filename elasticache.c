@@ -107,6 +107,9 @@ static int elasticache_should_refresh(TSRMLS_D)
     long nanoDiff, msDiff;
     struct timespec currentTime;
 
+    /* Hard-coded to always update while testing. */
+    return 1;
+
     /* This is our first check ever, which means we need to refresh. */
     if(EC_G(endpoint_last_refresh).tv_sec == 0)
         return 1;
