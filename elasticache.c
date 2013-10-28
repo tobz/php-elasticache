@@ -163,7 +163,7 @@ static void elasticache_parse_endpoints(char *endpoints TSRMLS_DC)
         }
 
         /* Build our final hostname that we'll connect to. */
-        spprintf(&hostname, 0, "%s:%d", url->host, url->port);
+        spprintf(&hostname, 0, "tcp://%s:%d", url->host, url->port);
 
         elasticache_debug("got endpoint '%s' from list", hostname);
 
