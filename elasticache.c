@@ -174,15 +174,8 @@ static void elasticache_parse_endpoints(char *endpoints TSRMLS_DC)
         /* Add our new/updated endpoint. */
         endpointName = url->scheme;
 
-        if(zend_hash_exists(EC_G(endpoints), endpointName, strlen(endpointName) + 1))
-        {
-            elasticache_debug("replacing existing endpoint '%s' with updated version", endpointName);
-            zend_hash_del(EC_G(endpoints), endpointName, strlen(endpointName) + 1);
-        }
-
         elasticache_debug("adding in new version of endpoint '%s'", endpointName);
-        zend_hash_add(EC_G(endpoints), endpointName, strlen(endpointName) + 1, tmp, sizeof(zval *), NULL);
-
+        zend_hash_update(EC_G(endpoints), endpointName, strlen(endpointName) + 1, (void**)&tmp, sizeof(zval *), NULL);
 
         elasticache_debug("freeing url object for endpoint '%s'", endpointName);
         /* Free the URL object. */
