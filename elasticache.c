@@ -35,6 +35,7 @@
 #endif
 
 #include "ext/standard/info.h"
+#include <php_network.h>
 #include "php_elasticache.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(elasticache)
@@ -268,7 +269,7 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     php_stream *stream;
     struct timeval tv;
     char buf[8192];
-    char *hash_key, *errmsg2, *response = NULL;
+    char *hash_key = NULL, *errmsg2 = NULL, *response = NULL;
     int response_len, errcode, result, node_count = 0;
     zval *tmp;
 
@@ -277,8 +278,10 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     tv.tv_usec = EC_G(endpoint_refresh_timeout) * 1000;
 
     /* Get our stream and connect to the endpoint. */
-    stream = php_stream_xport_create(endpoint, endpoint_len, ENFORCE_SAFE_MODE | REPORT_ERRORS,
-        STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, hash_key, &tv, NULL, &errmsg2, &errcode);
+    stream = php_stream_xport_create(endpoint, endpoint_len,
+                                     ENFORCE_SAFE_MODE | REPORT_ERRORS,
+                                     STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT,
+                                     hash_key, &tv, NULL, &errmsg2, &errcode);
 
     /* Make sure we got our stream successfully. */
     if (!stream)
