@@ -95,6 +95,12 @@ PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpoint_refresh_timeout, zend_elasticache_globals, elasticache_globals)
 PHP_INI_END()
 
+static int le_elasticache;
+static int elasticache_list_entry(void)
+{
+    return le_elasticache;
+}
+
 static void elasticache_debug(const char *format, ...)
 {
 	TSRMLS_FETCH();
@@ -977,6 +983,12 @@ PHP_FUNCTION(elasticache_version)
     RETURN_STRING(PHP_ELASTICACHE_EXTVER, 1);
 }
 
+ZEND_RSRC_DTOR_FUNC(elasticache_dtor)
+{
+    if (rsrc->ptr) {
+        rsrc->ptr = NULL;
+    }
+}
 
 PHP_RINIT_FUNCTION(elasticache)
 {
@@ -992,6 +1004,8 @@ PHP_RSHUTDOWN_FUNCTION(elasticache)
 
 PHP_MINIT_FUNCTION(elasticache)
 {
+    le_elasticache = zend_register_list_destructors_ex(NULL, elasticache_dtor, "Elasticache persistent connection", module_number);
+
 #ifdef ZTS
     ts_allocate_id(&elasticache_globals_id, sizeof(zend_elasticache_globals),
         (ts_allocate_ctor) elasticache_init_globals, (ts_allocate_dtor) elasticache_destroy_globals);
