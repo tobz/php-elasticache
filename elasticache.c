@@ -34,11 +34,50 @@
 #include "TSRM.h"
 #endif
 
-#include "ext/standard/info.h"
-#include <php_network.h>
+#include <php_ini.h>
+#include <SAPI.h>
+#include <ext/standard/info.h>
+#include <zend_extensions.h>
+#include <zend_exceptions.h>
+#include <ext/standard/php_smart_str.h>
+#include <ext/standard/php_var.h>
+#include <ext/standard/basic_functions.h>
+
+#include "php_network.h"
 #include "php_elasticache.h"
 
+/* Used to store the size of the block */
+#if defined(HAVE_INTTYPES_H)
+#include <inttypes.h>
+#elif defined(HAVE_STDINT_H)
+#include <stdint.h>
+#endif
+
+#ifdef PHP_WIN32
+# include "win32/php_stdint.h"
+#else
+# ifndef HAVE_INT32_T
+#  if SIZEOF_INT == 4
+typedef int int32_t;
+#  elif SIZEOF_LONG == 4
+typedef long int int32_t;
+#  endif
+# endif
+
+# ifndef HAVE_UINT32_T
+#  if SIZEOF_INT == 4
+typedef unsigned int uint32_t;
+#  elif SIZEOF_LONG == 4
+typedef unsigned long int uint32_t;
+#  endif
+# endif
+#endif
+
 ZEND_DECLARE_MODULE_GLOBALS(elasticache)
+
+#ifdef COMPILE_DL_ELASTICACHE
+ZEND_GET_MODULE(elasticache)
+#endif
 
 static PHP_INI_MH(OnUpdateEndpoints)
 {
@@ -998,9 +1037,20 @@ zend_function_entry elasticache_functions[] = {
     {NULL, NULL, NULL}
 };
 
+#if ZEND_MODULE_API_NO >= 20050922
+static const zend_module_dep elasticache_deps[] = {
+    {NULL, NULL, NULL}
+};
+#endif
+
 zend_module_entry elasticache_module_entry =
 {
-    STANDARD_MODULE_HEADER,
+#if ZEND_MODULE_API_NO >= 20050922
+	STANDARD_MODULE_HEADER_EX, NULL,
+	(zend_module_dep*)elasticache_deps,
+#else
+	STANDARD_MODULE_HEADER,
+#endif
     "elasticache",
     elasticache_functions,
     PHP_MINIT(elasticache),
@@ -1011,7 +1061,3 @@ zend_module_entry elasticache_module_entry =
     PHP_ELASTICACHE_EXTVER,
     STANDARD_MODULE_PROPERTIES
 };
-
-#ifdef COMPILE_DL_ELASTICACHE
-ZEND_GET_MODULE(elasticache)
-#endif

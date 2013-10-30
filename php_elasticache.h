@@ -53,11 +53,6 @@ ZEND_END_MODULE_GLOBALS(elasticache)
 #define EC_G(v) (elasticache_globals.v)
 #endif
 
-#define ZEND_HASH_RESET(arr,pos) zend_hash_internal_pointer_reset_ex(arr, pos)
-#define ZEND_HASH_GET_DATA(arr, data, pos) zend_hash_get_current_data_ex(arr, data, pos)
-#define ZEND_HASH_GET_KEY(arr, key, keylen, index, pos) zend_hash_get_current_key_ex(arr, key, keylen, index, 0, pos)
-#define ZEND_HASH_FORWARD(arr, pos) zend_hash_move_forward_ex(arr, pos)
-
 typedef struct elasticache_url {
     char *scheme;
     char *user;
@@ -68,6 +63,12 @@ typedef struct elasticache_url {
     char *query;
     char *fragment;
 } elasticache_url;
+
+PHP_RINIT_FUNCTION(elasticache);
+PHP_RSHUTDOWN_FUNCTION(elasticache);
+PHP_MINIT_FUNCTION(elasticache);
+PHP_MSHUTDOWN_FUNCTION(elasticache);
+PHP_MINFO_FUNCTION(elasticache);
 
 static void elasticache_debug(const char *format, ...);
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
