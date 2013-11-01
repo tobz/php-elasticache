@@ -243,6 +243,7 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 static void elasticache_update(TSRMLS_D)
 {
     elasticache_endpoint *endpoint;
+    elasticache_endpoint **endpoints;
     char *endpointName, *errmsg;
     zval **existingElasticacheArr;
     zval *newElasticacheArr, *newEndpointsArr, *newEndpointArr;
@@ -269,9 +270,11 @@ static void elasticache_update(TSRMLS_D)
     MAKE_STD_ZVAL(newElasticacheArr);
     array_init(newElasticacheArr);
 
+    endpoints = EC_G(endpoints);
+
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
     for(i = 0; i < EC_G(endpointCount); i++) {
-        endpoint = *(EC_G(endpoints) + i);
+        endpoint = *(endpoints + i);
 
         /* Until we rewrite the URL parsing code to only handle what we care about, harmlessly
            alias 'scheme' to 'endpointName'. */
