@@ -186,7 +186,6 @@ static void elasticache_clear_endpoints(TSRMLS_D)
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 {
     elasticache_endpoint *endpoint = NULL;
-    elasticache_endpoint **endpoints = NULL;
     char *rawEndpoint = NULL;
     int endpointCount = 0;
 
@@ -227,15 +226,14 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         /* Store the endpoint object. */
         elasticache_debug("%s - found endpoint '%s' from list, adding", CFN, rawEndpoint);
 
-        endpoints = (elasticache_endpoint**)erealloc(endpoints, (sizeof(elasticache_endpoint*) * ++endpointCount));
-        *(endpoints + (endpointCount - 1)) = endpoint;
+        EC_G(endpoints) = (elasticache_endpoint**)erealloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
+        *(EC_G(endpoints) + (endpointCount - 1)) = endpoint;
 
         /* Continue on. */
         elasticache_debug("%s - trying next match in list", CFN);
         rawEndpoint = strtok(NULL, ",");
     }
 
-    EC_G(endpoints) = endpoints;
     EC_G(endpointCount) = endpointCount;
 
     /* Got em all! */
