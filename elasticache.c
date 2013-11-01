@@ -46,7 +46,6 @@
 #include "php_network.h"
 #include "php_elasticache.h"
 
-/* Used to store the size of the block */
 #if defined(HAVE_INTTYPES_H)
 #include <inttypes.h>
 #elif defined(HAVE_STDINT_H)
@@ -81,54 +80,42 @@ ZEND_GET_MODULE(elasticache)
 
 static PHP_INI_MH(OnUpdateEndpoints)
 {
-    elasticache_debug("endpoints updated");
+    elasticache_debug("%s - endpoints INI value updated", CFN);
 
     /* Parse the endpoints into a list of endpoint name -> host[:port] */
     elasticache_parse_endpoints(new_value TSRMLS_CC);
 
-    return OnUpdateString(entry, new_value, new_value_length, mh_arg1, mh_arg2, mh_arg3, stage TSRMLS_CC);
+    return SUCCESS;
 }
 
 PHP_INI_BEGIN()
-    STD_PHP_INI_ENTRY("elasticache.endpoints", "", PHP_INI_ALL, OnUpdateEndpoints, raw_endpoints, zend_elasticache_globals, elasticache_globals)
-    STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_interval", "1000", PHP_INI_ALL, OnUpdateLong, endpoint_refresh_interval, zend_elasticache_globals, elasticache_globals)
-    STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpoint_refresh_timeout, zend_elasticache_globals, elasticache_globals)
+    STD_PHP_INI_ENTRY("elasticache.endpoints", "", PHP_INI_ALL, OnUpdateEndpoints, rawEndpoints, zend_elasticache_globals, elasticache_globals)
+    STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_interval", "1000", PHP_INI_ALL, OnUpdateLong, endpointRefreshInterval, zend_elasticache_globals, elasticache_globals)
+    STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpointRefreshTimeout, zend_elasticache_globals, elasticache_globals)
 PHP_INI_END()
-
-static int le_elasticache;
-static int elasticache_list_entry(void)
-{
-    return le_elasticache;
-}
 
 static void elasticache_debug(const char *format, ...)
 {
-	TSRMLS_FETCH();
+    TSRMLS_FETCH();
 
-	char buffer[1024];
-	va_list args;
+    char buffer[1024];
+    va_list args;
 
-	va_start(args, format);
-	vsnprintf(buffer, sizeof(buffer)-1, format, args);
-	va_end(args);
-	buffer[sizeof(buffer)-1] = '\0';
-	php_printf("%s\n", buffer);
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer) - 1, format, args);
+    va_end(args);
+    buffer[sizeof(buffer) - 1] = '\0';
+    php_printf("%s\n", buffer);
 }
 
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
 {
-    int ret = 0;
+    EC_G(endpoints) = NULL;
+    EC_G(endpointCount) = 0;
+    EC_G(endpointRefreshInterval) = 1000;
+    EC_G(endpointRefreshTimeout) = 250;
 
-    /* Get a hashtable to hold all of the endpoints we get */
-    HashTable *endpoints;
-    ALLOC_HASHTABLE(endpoints);
-    ret = zend_hash_init(endpoints, 2, NULL, ZVAL_PTR_DTOR, 0);
-
-    EC_G(endpoints) = endpoints;
-    EC_G(endpoint_refresh_interval) = 1000;
-    EC_G(endpoint_refresh_timeout) = 250;
-
-    elasticache_debug("initializing globals");
+    elasticache_debug("%s - globals initialized", CFN);
 }
 
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
@@ -157,183 +144,210 @@ static int elasticache_should_refresh(TSRMLS_D)
     return 1;
 
     /* This is our first check ever, which means we need to refresh. */
-    if(EC_G(endpoint_last_refresh).tv_sec == 0)
+    if(EC_G(endpointLastRefresh).tv_sec == 0)
         return 1;
 
     clock_gettime(CLOCK_MONOTONIC, &currentTime);
 
-    secDiff = currentTime.tv_sec - EC_G(endpoint_last_refresh).tv_sec;
-    nanoDiff = currentTime.tv_nsec - EC_G(endpoint_last_refresh).tv_nsec;
+    secDiff = currentTime.tv_sec - EC_G(endpointLastRefresh).tv_sec;
+    nanoDiff = currentTime.tv_nsec - EC_G(endpointLastRefresh).tv_nsec;
 
     /* We need milliseconds here since the refresh interval is in milliseconds. */
     msDiff = ((secDiff * 1000) + (nanoDiff / 1000000.0)) + 0.5;
 
-    return msDiff > EC_G(endpoint_refresh_interval);
+    return msDiff > EC_G(endpointRefreshInterval);
 }
 
-static void elasticache_parse_endpoints(char *endpoints TSRMLS_DC)
+static void elasticache_clear_endpoints(TSRMLS_D)
 {
-    elasticache_url *url = NULL;
-    char *endpoint, *endpointName, *hostname = NULL;
-    zval *tmp = NULL;
+    elasticache_endpoint **endpoints = EC_G(endpoints);
+    int endpointCount = EC_G(endpointCount), i = 0;
+
+    /* Clear out the old endpoints. */
+    if(endpoints != NULL)
+    {
+        /* Free the individual endpoints. */
+        for(i = 0; i < endpointCount; i++)
+        {
+            elasticache_debug("%s - freeing endpoint object", CFN);
+            elasticache_free_endpoint(*(endpoints + i));
+        }
+
+        efree(endpoints);
+
+        EC_G(endpoints) = NULL;
+    }
+
+    EC_G(endpointCount) = 0;
+
+    elasticache_debug("%s - done freeing endpoints");
+}
+
+static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
+{
+    elasticache_endpoint *endpoint;
+    char *rawEndpoint, *endpointName;
+    int endpointCount = 0;
 
     /* If we have no endpoints, we have nothing to parse. */
-    if(!endpoints || !strlen(endpoints))
+    if(!rawEndpoints || !strlen(rawEndpoints))
         return;
 
-    elasticache_debug("parsing endpoints");
+    /* Clear out the old endpoints. */
+    elasticache_clear_endpoints(TSRMLS_C);
 
     /* Go through the list of endpoints, parsing each accordingly. */
-    endpoint = strtok(endpoints, ",");
-    while(endpoint)
+    elasticache_debug("%s - starting to parse endpoints", CFN);
+
+    rawEndpoint = strtok(rawEndpoints, ",");
+    while(rawEndpoint)
     {
         /* Try to parse this as a URL, since our format is basically a URL. */
-        url = elasticache_parse_url(endpoint);
-        if(!url)
+        endpoint = elasticache_parse_endpoint(rawEndpoint);
+        if(!endpoint)
         {
-            php_error_docref(NULL TSRMLS_CC, E_ERROR, "failed to parse ElastiCache configuration endpoint: %s", endpoint);
+            php_error_docref(NULL TSRMLS_CC, E_ERROR, "failed to parse ElastiCache configuration endpoint: %s", rawEndpoint);
             continue;
         }
 
         /* We need a scheme and host at the bare minimum. */
-        if(!url->scheme || !url->host)
+        if(!endpoint->scheme || !endpoint->host)
         {
-            php_error_docref(NULL TSRMLS_CC, E_ERROR, "missing endpoint name and/or endpoint host for ElastiCache: %s", endpoint);
+            php_error_docref(NULL TSRMLS_CC, E_ERROR, "missing endpoint name and/or endpoint host for ElastiCache: %s", rawEndpoint);
             continue;
         }
 
-        /* If port wasn't set, use the default memcached port, which is what ElastiCache uses on the configuration node. */
-        if(!url->port)
+        /* Use the default Memcached port if none was specified. */
+        if(!endpoint->port)
         {
-            url->port = 11211;
+            endpoint->port = 11211;
         }
 
-        /* Build our final hostname that we'll connect to. */
-        spprintf(&hostname, 0, "tcp://%s:%d", url->host, url->port);
+        /* Store the endpoint object. */
+        elasticache_debug("%s - found endpoint '%s' from list, adding", CFN, rawEndpoint);
 
-        elasticache_debug("got endpoint '%s' from list", hostname);
+        EC_G(endpoints) = (elasticache_endpoint**)erealloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
+        *(EC_G(endpoints) + (endpointCount - 1)) = endpoint;
 
-        MAKE_STD_ZVAL(tmp);
-        ZVAL_STRING(tmp, hostname, 1);
-        efree(hostname);
-
-        /* Add our new/updated endpoint. */
-        endpointName = url->scheme;
-
-        elasticache_debug("adding in new version of endpoint '%s'", endpointName);
-        zend_hash_update(EC_G(endpoints), endpointName, strlen(endpointName) + 1, (void**)&tmp, sizeof(zval *), NULL);
-
-        elasticache_debug("freeing url object for endpoint '%s'", endpointName);
-        /* Free the URL object. */
-        elasticache_free_url(url);
-
-        elasticache_debug("trying next match in list");
-        endpoint = strtok(NULL, ",");
+        /* Continue on. */
+        elasticache_debug("%s - trying next match in list", CFN);
+        rawEndpoint = strtok(NULL, ",");
     }
 
-    elasticache_debug("all done parsing endpoints");
+    /* Got em all! */
+    elasticache_debug("%s - all done parsing endpoints", CFN);
 }
 
 static void elasticache_update(TSRMLS_D)
 {
-    char *endpoint, *endpointName, *errmsg;
-    zval **existingArr;
-    zval *newArr, *tmp;
-    HashTable *ht;
-    errmsg = "";
+    elasticache_endpoint *endpoint;
+    char *endpointName, *errmsg;
+    zval **existingElasticacheArr;
+    zval *newElasticacheArr, *newEndpointsArr, *newEndpointArr;
+    elasticache_cluster *cluster;
+    int i, j;
 
     /* If it's not time to refresh, bail out. */
     if(!elasticache_should_refresh(TSRMLS_C))
     {
-        elasticache_debug("refresh attempted, not time yet");
+        elasticache_debug("%s - refresh attempted; not time yet", CFN);
         return;
     }
-
-    elasticache_debug("attempting to refresh");
 
     /* If we have no endpoints, we definitely don't have anything to update. */
-    if(!strlen(EC_G(raw_endpoints)))
+    if(!EC_G(endpointCount))
     {
-        elasticache_debug("refresh attempted, but no endpoints");
+        elasticache_debug("%s - refresh attempted, but no endpoints", CFN);
         return;
     }
 
-    ht = EC_G(endpoints);
+    elasticache_debug("%s - attempting to refresh", CFN);
 
-    /* Get our array to shove in $_SERVER. */
-    MAKE_STD_ZVAL(newArr);
-    array_init(newArr);
+    /* Get our parent array to shove in $_SERVER. */
+    MAKE_STD_ZVAL(newElasticacheArr);
+    array_init(newElasticacheArr);
 
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
-    for(zend_hash_internal_pointer_reset(ht);
-    zend_hash_has_more_elements(ht) == SUCCESS;
-    zend_hash_move_forward(ht)) {
-        char *endpointName;
-        uint keylen;
-        ulong idx;
-        int type;
-        zval **ppzval, tmpcopy;
+    for(i = 0; i < EC_G(endpointCount); i++) {
+        endpoint = *(EC_G(endpoints) + i);
 
-        type = zend_hash_get_current_key_ex(ht, &endpointName, &keylen, &idx, 0, NULL);
-        if(zend_hash_get_current_data(ht, (void**)&ppzval) == FAILURE) {
-            continue;
-        }
+        /* Until we rewrite the URL parsing code to only handle what we care about, harmlessly
+           alias 'scheme' to 'endpointName'. */
+        endpointName = endpoint->scheme;
 
-        elasticache_debug("found endpoint '%s' while going down our list of endpoints", endpointName);
-
-        tmpcopy = **ppzval;
-        zval_copy_ctor(&tmpcopy);
-        INIT_PZVAL(&tmpcopy);
-        convert_to_string(&tmpcopy);
+        elasticache_debug("%s - found endpoint '%s' while going down our list of endpoints", CFN, endpointName);
 
         /* Now contact the configuration node and see if they have anything for us. */
-        tmp = elasticache_grab_configuration(endpointName, Z_STRVAL(tmpcopy), Z_STRLEN(tmpcopy), errmsg TSRMLS_CC);
-        if(tmp)
+        cluster = elasticache_get_cluster(endpoint, errmsg TSRMLS_CC);
+        if(cluster)
         {
-            elasticache_debug("got back nodes for endpoint '%s'", endpointName);
-            /* We got back node(s), so push in our array for the given endpoint name. */
-            add_assoc_zval(newArr, endpointName, tmp);
+            elasticache_debug("%s - got back %d node(s) for endpoint '%s'", CFN, cluster->nodeCount, endpointName);
+
+            MAKE_STD_ZVAL(newEndpointsArr);
+            array_init(newEndpointsArr);
+
+            /* For each node, create a separate array entry. */
+            for(j = 0; j < cluster->nodeCount; j++)
+            {
+                endpoint = *(cluster->nodes + j);
+
+                MAKE_STD_ZVAL(newEndpointArr);
+                array_init(newEndpointArr);
+
+                add_next_index_string(newEndpointArr, endpoint->host, 1);
+                add_next_index_long(newEndpointArr, endpoint->port);
+
+                add_next_index_zval(newEndpointsArr, newEndpointArr);
+            }
+
+            /* Add our endpoint nodes to their parent container. */
+            add_assoc_zval(newElasticacheArr, endpointName, newEndpointsArr);
         } else if(errmsg) {
-            elasticache_debug("got error message from elasticache_grab_configuration on endpoint '%s': %s", endpointName, errmsg);
+            elasticache_debug("%s - got error message from elasticache_grab_configuration on endpoint '%s': %s", CFN, endpointName, errmsg);
             efree(errmsg);
         }
     }
 
-    /* Now set the $_SERVER global with our aggregate array. */
-    if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&existingArr) == SUCCESS)
+    /* Now set the $_SERVER global with our parent array. */
+    if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&existingElasticacheArr) == SUCCESS)
     {
-        zend_hash_update(Z_ARRVAL_PP(existingArr), "ELASTICACHE", sizeof("ELASTICACHE"), &newArr, sizeof(zval*), NULL);
+        zend_hash_update(Z_ARRVAL_PP(existingElasticacheArr), "ELASTICACHE", sizeof("ELASTICACHE"), &newElasticacheArr, sizeof(zval*), NULL);
     }
 
     /* Mark our last refresh time as now. */
-    clock_gettime(CLOCK_MONOTONIC, &EC_G(endpoint_last_refresh));
+    clock_gettime(CLOCK_MONOTONIC, &EC_G(endpointLastRefresh));
 }
 
-static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, int endpoint_len, char *errmsg TSRMLS_DC)
+static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoint, char *errmsg TSRMLS_DC)
 {
     php_stream *stream;
     struct timeval tv;
     char buf[8192];
-    char *hash_key = NULL, *errmsg2 = NULL, *response = NULL;
-    int response_len, errcode, result, node_count = 0;
-    zval *tmp;
+    char *hostname = NULL, *hash_key = NULL, *errmsg2 = NULL, *response = NULL;
+    int responseLen, hostnameLen, errcode, result, nodeCount = 0;
+    elasticache_cluster *cluster;
 
     /* Set timeout for the connection. */
     tv.tv_sec = 0;
-    tv.tv_usec = EC_G(endpoint_refresh_timeout) * 1000;
+    tv.tv_usec = EC_G(endpointRefreshTimeout) * 1000;
+
+    /* Build our hostname. */
+    hostnameLen = spprintf(&hostname, 0, "%s:%d", endpoint->host, endpoint->port);
 
     /* Get our stream and connect to the endpoint. */
-    stream = php_stream_xport_create(endpoint, endpoint_len,
+    stream = php_stream_xport_create(hostname, hostnameLen,
                                      ENFORCE_SAFE_MODE | REPORT_ERRORS,
                                      STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT,
                                      hash_key, &tv, NULL, &errmsg2, &errcode);
 
+    efree(hostname);
+
     /* Make sure we got our stream successfully. */
-    if (!stream)
+    if(!stream)
     {
         if(errmsg)
         {
-            spprintf(&errmsg, 0, "can't connect to ElastiCache configuration '%s': %s", endpoint, errmsg2);
+            spprintf(&errmsg, 0, "can't connect to ElastiCache configuration '%s': %s", endpoint->host, errmsg2);
         }
         efree(errmsg2);
 
@@ -349,17 +363,17 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     {
         if(errmsg)
         {
-            spprintf(&errmsg, 0, "failed to send cluster config command to '%s'", endpoint);
+            spprintf(&errmsg, 0, "failed to send cluster config command to '%s'", endpoint->host);
         }
         return NULL;
     }
 
     /* Get the result back. */
-    if((result = elasticache_read_value(stream, &buf[0], sizeof(buf), &response, &response_len TSRMLS_CC)) < 0)
+    if((result = elasticache_read_value(stream, &buf[0], sizeof(buf), &response, &responseLen TSRMLS_CC)) < 0)
     {
         if(errmsg)
         {
-            spprintf(&errmsg, 0, "failed to get response from '%s'", endpoint);
+            spprintf(&errmsg, 0, "failed to get response from '%s'", endpoint->host);
         }
         return NULL;
     }
@@ -368,18 +382,18 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
         /* We couldn't find the value.  wtf m8? */
         if(errmsg)
         {
-            spprintf(&errmsg, 0, "failed to read value from configuration node response '%s'", endpoint);
+            spprintf(&errmsg, 0, "failed to read value from configuration node response '%s'", endpoint->host);
         }
         return NULL;
     }
 
     /* We now have our response, so now parse it. */
-    tmp = elasticache_parse_nodes(response, response_len, &node_count);
-    if(!node_count) {
+    nodeCount = elasticache_parse_config(response, responseLen, &cluster);
+    if(!nodeCount) {
         /* No nodes... that ain't right.  Bail out, yo! */
         if(errmsg)
         {
-            spprintf(&errmsg, 0, "parsed zero cache nodes out of configuration endpoint response '%s'", endpoint);
+            spprintf(&errmsg, 0, "parsed zero cache nodes out of configuration endpoint response '%s'", endpoint->host);
         }
         return NULL;
     }
@@ -388,113 +402,132 @@ static zval *elasticache_grab_configuration(char *endpointName, char *endpoint, 
     php_stream_close(stream);
     stream = NULL;
 
-    return tmp;
+    return cluster;
 }
 
-static zval *elasticache_parse_nodes(char *response, int response_len, int *nodeCount)
+static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster **cluster)
 {
     char *nodePos, *node, *currentNode, *nodeFqdn, *tmp, *nodeFull = NULL;
     char **nodes = NULL;
-    int i, len, nodePort = 0;
-    zval *arr;
+    elasticache_endpoint *endpoint;
+    int i, len, nodePort, nodeCount = 0;
 
     /* find where the config version line ends */
     nodePos = strstr(response, "\n");
-    if (!nodePos)
+    if(!nodePos)
     {
-        return;
+        return 0;
     }
 
-    array_init(arr);
-
-    /* get the number of nodes */
+    /* Break apart the response into just the nodes it contains. */
     nodePos = strtok((nodePos + 1), " \n");
     while(nodePos)
     {
-        /* get string length and allocate new string to hold this node */
         len = strlen(nodePos);
         node = emalloc(len + 1);
         strcpy(node, nodePos);
 
-        /* increment our node count */
-        (*nodeCount)++;
+        nodeCount++;
 
-        /* create our array of node pointers or realloc it to the right size */
-        nodes = erealloc(nodes, sizeof(char*) * (*nodeCount));
+        nodes = erealloc(nodes, sizeof(char*) * nodeCount);
 
-        /* add in our node pointer at the right point */
-        *(nodes + (*nodeCount - 1)) = node;
+        *(nodes + (nodeCount - 1)) = node;
 
-        /* find our next node entry */
         nodePos = strtok(NULL, " \r\n");
     }
 
-    /* loop thru each node and break it down, adding it to our server list */
-    for (i = 0; i < *nodeCount; i++)
+    /* If we actually got some, create our cluster object. Allocate enough space for all the nodes
+       we think we'll get, but get the node count by waiting until we parse each node entry
+       successfully before incrementing. */
+    *cluster = emalloc(sizeof(elasticache_cluster*));
+    (*cluster)->nodes = emalloc(sizeof(elasticache_endpoint*) * nodeCount);
+    (*cluster)->nodeCount = 0;
+
+    /* Loop through each node and break it down, adding it to our cluster object. */
+    for(i = 0; i < nodeCount; i++)
     {
         currentNode = *(nodes + i);
 
-        /* this should be our node fqdn */
+        /* This should be our node FQDN. */
         nodePos = strtok(currentNode, "|");
-        if (nodePos)
+        if(nodePos)
         {
             len = strlen(nodePos);
             nodeFqdn = emalloc(len + 1);
             strcpy(nodeFqdn, nodePos);
         }
 
-        /* this should normally be the private ip but it might be the port since strtok
-           should, i believe, skip over empty values?  we'll just have to find out! :D */
+        /* This should normally be the private IP but it might be the port since strtok should,
+           I believe, skip over empty values.  We'll just have to find out! :D */
         nodePos = strtok(NULL, "|");
-        if (nodePos)
+        if(nodePos)
         {
-            len = sizeof(nodePos);
+            len = strlen(nodePos);
             tmp = emalloc(len + 1);
             strcpy(tmp, nodePos);
         }
 
-        /* try for the port now and see what happens */
+        /* Try for the port now and see what happens. */
         nodePos = strtok(NULL, "|");
-        if (nodePos)
+        if(nodePos)
         {
-            /* if we got the private IP, free that because we're not going to use it after all */
+            /* If we got the private IP: free it because we're not going to use it after all. */
             if(tmp)
             {
                 efree(tmp);
             }
 
-            len = sizeof(nodePos);
-            tmp = emalloc(len + 1);
-            strcpy(tmp, nodePos);
-            nodePort = atoi(tmp);
+            nodePort = atoi(nodePos);
 
         }
-        else if (tmp)
+        else if(tmp)
         {
             nodePort = atoi(tmp);
         }
 
-        if (!nodeFqdn || !nodePort) {
-            /* what do we do here? backing out is ugly because of memory clean-up
-               i feel like, but continuing on doesn't really make sense. */
+        if(!nodeFqdn || !nodePort)
+        {
+            /* What do we do here? Backing out is ugly because of memory clean-up, I feel like,
+               but continuing on doesn't really make sense. :( */
+            if(nodeFqdn)
+            {
+                efree(nodeFqdn);
+            }
+
+            if(tmp)
+            {
+                efree(tmp);
+            }
+
             continue;
         }
 
-        /* Add the node to our list. */
-        spprintf(&nodeFull, 0, "%s:%d", nodeFqdn, nodePort);
+        /* Create our endpoint object. */
+        endpoint = ecalloc(1, sizeof(elasticache_endpoint));
+        endpoint->host = estrdup(nodeFqdn);
+        endpoint->port = nodePort;
 
-        add_next_index_string(arr, nodeFull, 1);
+        /* Store the endpoint. */
+        *((*cluster)->nodes + i) = endpoint;
+        (*cluster)->nodeCount++;
 
-        efree(nodeFull);
+        /* Free our temporary holders. */
+        efree(nodeFqdn);
+        if(tmp)
+        {
+            efree(tmp);
+        }
     }
 
     /* Clean up old entries. */
-    for (i = 0; i < *nodeCount; i++) {
+    for (i = 0; i < nodeCount; i++) {
         char *currentNode = *(nodes + i);
         efree(currentNode);
     }
 
     efree(nodes);
+
+    return (*cluster)->nodeCount;
 }
 
 static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC)
@@ -641,23 +674,24 @@ static int elasticache_str_left(char *haystack, char *needle, int haystack_len, 
     return 0;
 }
 
-static void elasticache_free_url(elasticache_url *url)
+static void elasticache_free_endpoint(elasticache_endpoint *endpoint)
 {
-    if(url->scheme)
-        efree(url->scheme);
-    if(url->user)
-        efree(url->user);
-    if(url->pass)
-        efree(url->pass);
-    if(url->host)
-        efree(url->host);
-    if(url->path)
-        efree(url->path);
-    if(url->query)
-        efree(url->query);
-    if(url->fragment)
-        efree(url->fragment);
-    efree(url);
+    if(endpoint->scheme)
+        efree(endpoint->scheme);
+    if(endpoint->user)
+        efree(endpoint->user);
+    if(endpoint->pass)
+        efree(endpoint->pass);
+    if(endpoint->host)
+        efree(endpoint->host);
+    if(endpoint->path)
+        efree(endpoint->path);
+    if(endpoint->query)
+        efree(endpoint->query);
+    if(endpoint->fragment)
+        efree(endpoint->fragment);
+
+    efree(endpoint);
 }
 
 static char *elasticache_replace_controlchars(char *str, int len)
@@ -665,27 +699,28 @@ static char *elasticache_replace_controlchars(char *str, int len)
     unsigned char *s = (unsigned char *)str;
     unsigned char *e = (unsigned char *)str + len;
 
-    if (!str)
+    if(!str)
     {
         return NULL;
     }
 
-    while (s < e)
+    while(s < e)
     {
         if(iscntrl(*s))
         {
-            *s='_';
+            *s = '_';
         }
+
         s++;
     }
 
-    return (str);
+    return str;
 }
 
-static elasticache_url *elasticache_parse_url(char *str)
+static elasticache_endpoint *elasticache_parse_endpoint(char *str)
 {
     char port_buf[6];
-    elasticache_url *ret = ecalloc(1, sizeof(elasticache_url));
+    elasticache_endpoint *ret = ecalloc(1, sizeof(elasticache_endpoint));
     const char *s, *e, *p, *pp, *ue;
     int length = strlen(str);
 
@@ -983,13 +1018,6 @@ PHP_FUNCTION(elasticache_version)
     RETURN_STRING(PHP_ELASTICACHE_EXTVER, 1);
 }
 
-ZEND_RSRC_DTOR_FUNC(elasticache_dtor)
-{
-    if (rsrc->ptr) {
-        rsrc->ptr = NULL;
-    }
-}
-
 PHP_RINIT_FUNCTION(elasticache)
 {
     elasticache_update(TSRMLS_C);
@@ -1004,8 +1032,6 @@ PHP_RSHUTDOWN_FUNCTION(elasticache)
 
 PHP_MINIT_FUNCTION(elasticache)
 {
-    le_elasticache = zend_register_list_destructors_ex(NULL, elasticache_dtor, "Elasticache persistent connection", module_number);
-
 #ifdef ZTS
     ts_allocate_id(&elasticache_globals_id, sizeof(zend_elasticache_globals),
         (ts_allocate_ctor) elasticache_init_globals, (ts_allocate_dtor) elasticache_destroy_globals);
@@ -1051,19 +1077,16 @@ zend_function_entry elasticache_functions[] = {
     {NULL, NULL, NULL}
 };
 
-#if ZEND_MODULE_API_NO >= 20050922
 static const zend_module_dep elasticache_deps[] = {
     {NULL, NULL, NULL}
 };
-#endif
 
-zend_module_entry elasticache_module_entry =
-{
+zend_module_entry elasticache_module_entry = {
 #if ZEND_MODULE_API_NO >= 20050922
-	STANDARD_MODULE_HEADER_EX, NULL,
-	(zend_module_dep*)elasticache_deps,
+    STANDARD_MODULE_HEADER_EX, NULL,
+    (zend_module_dep*)elasticache_deps,
 #else
-	STANDARD_MODULE_HEADER,
+    STANDARD_MODULE_HEADER,
 #endif
     "elasticache",
     elasticache_functions,
