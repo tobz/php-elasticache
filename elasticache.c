@@ -185,9 +185,9 @@ static void elasticache_clear_endpoints(TSRMLS_D)
 
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 {
-    elasticache_endpoint *endpoint;
-    elasticache_endpoint **endpoints;
-    char *rawEndpoint;
+    elasticache_endpoint *endpoint = NULL;
+    elasticache_endpoint **endpoints = NULL;
+    char *rawEndpoint = NULL;
     int endpointCount = 0;
 
     /* If we have no endpoints, we have nothing to parse. */
@@ -244,12 +244,12 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 
 static void elasticache_update(TSRMLS_D)
 {
-    elasticache_endpoint *endpoint;
-    elasticache_endpoint **endpoints;
-    char *endpointName, *errmsg;
-    zval **existingElasticacheArr;
-    zval *newElasticacheArr, *newEndpointsArr, *newEndpointArr;
-    elasticache_cluster *cluster;
+    elasticache_endpoint *endpoint = NULL;
+    elasticache_endpoint **endpoints = NULL;
+    char *endpointName = NULL, *errmsg = NULL;
+    zval **existingElasticacheArr = NULL;
+    zval *newElasticacheArr = NULL, *newEndpointsArr = NULL, *newEndpointArr = NULL;
+    elasticache_cluster *cluster = NULL;
     int i, j;
 
     /* If it's not time to refresh, bail out. */
@@ -327,12 +327,12 @@ static void elasticache_update(TSRMLS_D)
 
 static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoint, char *errmsg TSRMLS_DC)
 {
-    php_stream *stream;
+    php_stream *stream = NULL;
     struct timeval tv;
     char buf[8192];
     char *hostname = NULL, *hash_key = NULL, *errmsg2 = NULL, *response = NULL;
-    int responseLen, hostnameLen, errcode, result, nodeCount = 0;
-    elasticache_cluster *cluster;
+    int responseLen, hostnameLen, errcode, result, nodeCount;
+    elasticache_cluster *cluster = NULL;
 
     /* Set timeout for the connection. */
     tv.tv_sec = 0;
@@ -414,10 +414,10 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
 
 static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster **cluster)
 {
-    char *nodePos, *node, *currentNode, *nodeFqdn, *tmp, *nodeFull = NULL;
+    char *nodePos = NULL, *node = NULL, *currentNode = NULL, *nodeFqdn = NULL, *tmp = NULL, *nodeFull = NULL;
     char **nodes = NULL;
-    elasticache_endpoint *endpoint;
-    int i, len, nodePort, nodeCount = 0;
+    elasticache_endpoint *endpoint = NULL;
+    int i, len, nodePort, nodeCount;
 
     /* find where the config version line ends */
     nodePos = strstr(response, "\n");
@@ -539,8 +539,8 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
 
 static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC)
 {
-    char *command;
-    int command_len, cmdlen;
+    char *command = NULL;
+    int commandLen, cmdlen;
 
     if (!stream || !cmd)
     {
@@ -552,12 +552,12 @@ static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC)
     command = emalloc(cmdlen + sizeof("\r\n"));
     memcpy(command, cmd, cmdlen);
     memcpy(command + cmdlen, "\r\n", sizeof("\r\n") - 1);
-    command_len = cmdlen + sizeof("\r\n") - 1;
-    command[command_len] = '\0';
+    commandLen = cmdlen + sizeof("\r\n") - 1;
+    command[commandLen] = '\0';
 
     /* todo: handle timeouts */
 
-    if (php_stream_write(stream, command, command_len) != command_len) {
+    if (php_stream_write(stream, command, commandLen) != commandLen) {
         /* todo: set error data that writing command failed */
         efree(command);
         return -1;
@@ -568,100 +568,113 @@ static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC)
     return 1;
 }
 
-static int elasticache_read_value(php_stream *stream, char *buf, int buf_len, char **value, int *value_len TSRMLS_DC)
+static int elasticache_read_value(php_stream *stream, char *buf, int bufLen, char **value, int *valueLen TSRMLS_DC)
 {
-    char *data;
-    int response_len, data_len, i, size, flags;
+    char *data = NULL;
+    int responseLen, dataLen, i, size, flags;
 
     /* read "VALUE <key> <flags> <bytes>\r\n" header line */
-    if ((response_len = elasticache_readline(stream, buf, buf_len TSRMLS_CC)) < 0) {
+    if ((responseLen = elasticache_readline(stream, buf, bufLen TSRMLS_CC)) < 0)
+    {
         /* todo: send back up error message that we couldn't parse server's response */
         return -1;
     }
 
     /* reached the end of the data */
-    if (elasticache_str_left(buf, "END", response_len, sizeof("END") - 1)) {
+    if (elasticache_str_left(buf, "END", responseLen, sizeof("END") - 1))
+    {
         return 0;
     }
 
-    if (elasticache_parse_response(buf, response_len, NULL, NULL, &flags, &data_len) < 0) {
+    if (elasticache_parse_response(buf, responseLen, NULL, NULL, &flags, &dataLen) < 0)
+    {
         return -1;
     }
 
     /* data_len + \r\n + \0 */
-    data = emalloc(data_len + 3);
+    data = emalloc(dataLen + 3);
 
-    for (i = 0; i < data_len + 2; i += size) {
-        if ((size = php_stream_read(stream, data + i, data_len + 2 - i)) == 0) {
+    for (i = 0; i < dataLen + 2; i += size) {
+        if ((size = php_stream_read(stream, data + i, dataLen + 2 - i)) == 0)
+        {
             // todo: push error up about failing to read the response body
             efree(data);
             return -1;
         }
     }
 
-    data[data_len] = '\0';
+    data[dataLen] = '\0';
 
     /* todo: potentially handle decompression */
 
     *value = data;
-    *value_len = data_len;
+    *valueLen = dataLen;
+
     return 1;
 }
 
-static int elasticache_readline(php_stream *stream, char *buf, int buf_len TSRMLS_DC)
+static int elasticache_readline(php_stream *stream, char *buf, int bufLen TSRMLS_DC)
 {
-    char *response;
-    size_t response_len;
+    char *response = NULL;
+    size_t responseLen;
 
-    if (!stream) {
+    if(!stream)
+    {
         /* todo: send back error that stream is closed */
         return -1;
     }
 
-    response = php_stream_get_line(stream, buf, buf_len, &response_len);
-    if (response) {
-        return response_len;
+    response = php_stream_get_line(stream, buf, bufLen, &responseLen);
+    if(response)
+    {
+        return responseLen;
     }
 
     /* todo: send back an error string here or something */
     return -1;
 }
 
-static int elasticache_parse_response(char *response, int response_len, char **key, int *key_len, int *flags, int *value_len)
+static int elasticache_parse_response(char *response, int responseLen, char **key, int *keyLen, int *flags, int *valueLen)
 {
-    int i=0, n=0;
+    int i, n = 0;
     int spaces[3];
 
-    if (!response || response_len <= 0) {
+    if(!response || responseLen <= 0)
+    {
         /* todo: send back error about empty response */
         return -1;
     }
 
-    for (i=0, n=0; i < response_len && n < 3; i++) {
-        if (response[i] == ' ') {
+    for(i=0, n=0; i < responseLen && n < 3; i++)
+    {
+        if (response[i] == ' ')
+        {
             spaces[n++] = i;
         }
     }
 
-    if (n < 3) {
+    if(n < 3)
+    {
         /* todo: send back error about malformed VALUE header */
         return -1;
     }
 
-    if (key) {
+    if(key)
+    {
         int len = spaces[1] - spaces[0] - 1;
 
         *key = emalloc(len + 1);
-        *key_len = len;
+        *keyLen = len;
 
         memcpy(*key, response + spaces[0] + 1, len);
         (*key)[len] = '\0';
     }
 
     *flags = atoi(response + spaces[1]);
-    *value_len = atoi(response + spaces[2]);
+    *valueLen = atoi(response + spaces[2]);
 
-    if (*flags < 0 || *value_len < 0) {
+    if(*flags < 0 || *valueLen < 0)
+    {
         /* todo: send back error about malformed VALUE header */
         return -1;
     }
@@ -669,12 +682,11 @@ static int elasticache_parse_response(char *response, int response_len, char **k
     return 1;
 }
 
-static int elasticache_str_left(char *haystack, char *needle, int haystack_len, int needle_len)
+static int elasticache_str_left(char *haystack, char *needle, int haystackLen, int needleLen)
 {
-    char *found;
-
-    found = php_memnstr(haystack, needle, needle_len, haystack + haystack_len);
-    if ((found - haystack) == 0) {
+    char *found = php_memnstr(haystack, needle, needleLen, haystack + haystackLen);
+    if((found - haystack) == 0)
+    {
         return 1;
     }
 
@@ -1018,7 +1030,8 @@ end:
 
 PHP_FUNCTION(elasticache_version)
 {
-    if(zend_parse_parameters_none() == FAILURE) {
+    if(zend_parse_parameters_none() == FAILURE)
+    {
         return;
     }
 
