@@ -1043,8 +1043,6 @@ PHP_MINIT_FUNCTION(elasticache)
 
     REGISTER_INI_ENTRIES();
 
-    elasticache_update(TSRMLS_C);
-
     return SUCCESS;
 }
 
