@@ -180,7 +180,7 @@ static void elasticache_clear_endpoints(TSRMLS_D)
 
     EC_G(endpointCount) = 0;
 
-    elasticache_debug("%s - done freeing endpoints");
+    elasticache_debug("%s - done freeing endpoints", CFN);
 }
 
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
@@ -233,6 +233,8 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         elasticache_debug("%s - trying next match in list", CFN);
         rawEndpoint = strtok(NULL, ",");
     }
+
+    EC_G(endpointCount) = endpointCount;
 
     /* Got em all! */
     elasticache_debug("%s - all done parsing endpoints", CFN);
