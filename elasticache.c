@@ -72,6 +72,8 @@ typedef unsigned long int uint32_t;
 # endif
 #endif
 
+#define EC_STRFREE(s) if(s) { free(s); }
+
 ZEND_DECLARE_MODULE_GLOBALS(elasticache)
 
 #ifdef COMPILE_DL_ELASTICACHE
@@ -173,7 +175,7 @@ static void elasticache_clear_endpoints(TSRMLS_D)
             elasticache_free_endpoint(*(endpoints + i));
         }
 
-        efree(endpoints);
+        free(endpoints);
 
         EC_G(endpoints) = NULL;
     }
@@ -226,7 +228,7 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         /* Store the endpoint object. */
         elasticache_debug("%s - found endpoint '%s' from list, adding", CFN, rawEndpoint);
 
-        EC_G(endpoints) = erealloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
+        EC_G(endpoints) = realloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
         *(EC_G(endpoints) + (endpointCount - 1)) = endpoint;
 
         /* Continue on. */
@@ -327,7 +329,7 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
 {
     php_stream *stream = NULL;
     struct timeval tv;
-    char buf[8192], buf2[256];
+    char buf[8192];
     char *hostname = NULL, *hash_key = NULL, *errmsg2 = NULL, *response = NULL;
     int responseLen, hostnameLen, errcode, result, nodeCount;
     elasticache_cluster *cluster = NULL;
@@ -337,14 +339,15 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
     tv.tv_usec = EC_G(endpointRefreshTimeout) * 1000;
 
     /* Build our hostname. */
-    hostname = &buf2[0];
-    hostnameLen = sprintf(&hostname, "%s:%d", endpoint->host, endpoint->port);
+    hostnameLen = spprintf(&hostname, 0, "%s:%d", endpoint->host, endpoint->port);
 
     /* Get our stream and connect to the endpoint. */
     stream = php_stream_xport_create(hostname, hostnameLen,
                                      ENFORCE_SAFE_MODE | REPORT_ERRORS,
                                      STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT,
                                      hash_key, &tv, NULL, &errmsg2, &errcode);
+
+    efree(hostname);
 
     /* Make sure we got our stream successfully. */
     if(!stream)
@@ -443,8 +446,8 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
     /* If we actually got some, create our cluster object. Allocate enough space for all the nodes
        we think we'll get, but get the node count by waiting until we parse each node entry
        successfully before incrementing. */
-    *cluster = emalloc(sizeof(elasticache_cluster*));
-    (*cluster)->nodes = emalloc(sizeof(elasticache_endpoint*) * nodeCount);
+    *cluster = malloc(sizeof(elasticache_cluster*));
+    (*cluster)->nodes = malloc(sizeof(elasticache_endpoint*) * nodeCount);
     (*cluster)->nodeCount = 0;
 
     /* Loop through each node and break it down, adding it to our cluster object. */
@@ -507,8 +510,8 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
         }
 
         /* Create our endpoint object. */
-        endpoint = ecalloc(1, sizeof(elasticache_endpoint));
-        endpoint->host = estrdup(nodeFqdn);
+        endpoint = calloc(1, sizeof(elasticache_endpoint));
+        endpoint->host = strdup(nodeFqdn);
         endpoint->port = nodePort;
 
         /* Store the endpoint. */
@@ -692,22 +695,15 @@ static int elasticache_str_left(char *haystack, char *needle, int haystackLen, i
 
 static void elasticache_free_endpoint(elasticache_endpoint *endpoint)
 {
-    if(endpoint->scheme)
-        efree(endpoint->scheme);
-    if(endpoint->user)
-        efree(endpoint->user);
-    if(endpoint->pass)
-        efree(endpoint->pass);
-    if(endpoint->host)
-        efree(endpoint->host);
-    if(endpoint->path)
-        efree(endpoint->path);
-    if(endpoint->query)
-        efree(endpoint->query);
-    if(endpoint->fragment)
-        efree(endpoint->fragment);
+    EC_STRFREE(endpoint->scheme)
+    EC_STRFREE(endpoint->user)
+    EC_STRFREE(endpoint->pass)
+    EC_STRFREE(endpoint->host)
+    EC_STRFREE(endpoint->path)
+    EC_STRFREE(endpoint->query)
+    EC_STRFREE(endpoint->fragment)
 
-    efree(endpoint);
+    free(endpoint);
 }
 
 static char *elasticache_replace_controlchars(char *str, int len)
@@ -736,7 +732,7 @@ static char *elasticache_replace_controlchars(char *str, int len)
 static elasticache_endpoint *elasticache_parse_endpoint(char *str)
 {
     char port_buf[6];
-    elasticache_endpoint *ret = ecalloc(1, sizeof(elasticache_endpoint));
+    elasticache_endpoint *ret = calloc(1, sizeof(elasticache_endpoint));
     const char *s, *e, *p, *pp, *ue;
     int length = strlen(str);
 
@@ -769,7 +765,7 @@ static elasticache_endpoint *elasticache_parse_endpoint(char *str)
         if(*(e + 1) == '\0')
         {
             /* only scheme is available */
-            ret->scheme = estrndup(s, (e - s));
+            ret->scheme = strndup(s, (e - s));
             elasticache_replace_controlchars(ret->scheme, (e - s));
             goto end;
         }
@@ -789,7 +785,7 @@ static elasticache_endpoint *elasticache_parse_endpoint(char *str)
                 goto parse_port;
             }
 
-            ret->scheme = estrndup(s, (e-s));
+            ret->scheme = strndup(s, (e-s));
             elasticache_replace_controlchars(ret->scheme, (e - s));
 
             length -= ++e - s;
@@ -798,7 +794,7 @@ static elasticache_endpoint *elasticache_parse_endpoint(char *str)
         }
         else
         {
-            ret->scheme = estrndup(s, (e-s));
+            ret->scheme = strndup(s, (e-s));
             elasticache_replace_controlchars(ret->scheme, (e - s));
 
             if(*(e+2) == '/')
@@ -884,7 +880,7 @@ just_path:
         {
             if((pp-s) > 0)
             {
-                ret->user = estrndup(s, (pp-s));
+                ret->user = strndup(s, (pp-s));
                 elasticache_replace_controlchars(ret->user, (pp - s));
             }
 
@@ -892,13 +888,13 @@ just_path:
 
             if(p-pp > 0)
             {
-                ret->pass = estrndup(pp, (p-pp));
+                ret->pass = strndup(pp, (p-pp));
                 elasticache_replace_controlchars(ret->pass, (p-pp));
             }
         }
         else
         {
-            ret->user = estrndup(s, (p-s));
+            ret->user = strndup(s, (p-s));
             elasticache_replace_controlchars(ret->user, (p-s));
         }
 
@@ -925,10 +921,10 @@ just_path:
 
             if(e-p > 5) /* port cannot be longer then 5 characters */
             {
-                STR_FREE(ret->scheme);
-                STR_FREE(ret->user);
-                STR_FREE(ret->pass);
-                efree(ret);
+                EC_STRFREE(ret->scheme);
+                EC_STRFREE(ret->user);
+                EC_STRFREE(ret->pass);
+                free(ret);
                 return NULL;
             }
             else if(e - p > 0)
@@ -949,14 +945,14 @@ just_path:
     /* check if we have a valid host, if we don't reject the string as url */
     if((p-s) < 1)
     {
-        STR_FREE(ret->scheme);
-        STR_FREE(ret->user);
-        STR_FREE(ret->pass);
-        efree(ret);
+        EC_STRFREE(ret->scheme);
+        EC_STRFREE(ret->user);
+        EC_STRFREE(ret->pass);
+        free(ret);
         return NULL;
     }
 
-    ret->host = estrndup(s, (p-s));
+    ret->host = strndup(s, (p-s));
     elasticache_replace_controlchars(ret->host, (p - s));
 
     if(e == ue)
@@ -979,7 +975,7 @@ nohost:
 
         if(p - s)
         {
-            ret->path = estrndup(s, (p-s));
+            ret->path = strndup(s, (p-s));
             elasticache_replace_controlchars(ret->path, (p - s));
         }
 
@@ -987,7 +983,7 @@ nohost:
         {
             if(pp - ++p)
             {
-                ret->query = estrndup(p, (pp-p));
+                ret->query = strndup(p, (pp-p));
                 elasticache_replace_controlchars(ret->query, (pp - p));
             }
 
@@ -996,7 +992,7 @@ nohost:
         }
         else if(++p - ue)
         {
-            ret->query = estrndup(p, (ue-p));
+            ret->query = strndup(p, (ue-p));
             elasticache_replace_controlchars(ret->query, (ue - p));
         }
     }
@@ -1004,7 +1000,7 @@ nohost:
     {
         if(p - s)
         {
-            ret->path = estrndup(s, (p-s));
+            ret->path = strndup(s, (p-s));
             elasticache_replace_controlchars(ret->path, (p - s));
         }
 label_parse:
@@ -1012,13 +1008,13 @@ label_parse:
 
         if(ue - p)
         {
-            ret->fragment = estrndup(p, (ue-p));
+            ret->fragment = strndup(p, (ue-p));
             elasticache_replace_controlchars(ret->fragment, (ue - p));
         }
     }
     else
     {
-        ret->path = estrndup(s, (ue-s));
+        ret->path = strndup(s, (ue-s));
         elasticache_replace_controlchars(ret->path, (ue - s));
     }
 end:
