@@ -327,7 +327,7 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
 {
     php_stream *stream = NULL;
     struct timeval tv;
-    char buf[8192];
+    char buf[8192], buf2[256];
     char *hostname = NULL, *hash_key = NULL, *errmsg2 = NULL, *response = NULL;
     int responseLen, hostnameLen, errcode, result, nodeCount;
     elasticache_cluster *cluster = NULL;
@@ -337,15 +337,14 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
     tv.tv_usec = EC_G(endpointRefreshTimeout) * 1000;
 
     /* Build our hostname. */
-    hostnameLen = spprintf(&hostname, 0, "%s:%d", endpoint->host, endpoint->port);
+    hostname = &buf2[0];
+    hostnameLen = sprintf(&hostname, "%s:%d", endpoint->host, endpoint->port);
 
     /* Get our stream and connect to the endpoint. */
     stream = php_stream_xport_create(hostname, hostnameLen,
                                      ENFORCE_SAFE_MODE | REPORT_ERRORS,
                                      STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT,
                                      hash_key, &tv, NULL, &errmsg2, &errcode);
-
-    efree(hostname);
 
     /* Make sure we got our stream successfully. */
     if(!stream)
