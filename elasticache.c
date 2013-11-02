@@ -226,7 +226,7 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         /* Store the endpoint object. */
         elasticache_debug("%s - found endpoint '%s' from list, adding", CFN, rawEndpoint);
 
-        EC_G(endpoints) = (elasticache_endpoint**)erealloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
+        EC_G(endpoints) = erealloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
         *(EC_G(endpoints) + (endpointCount - 1)) = endpoint;
 
         /* Continue on. */
@@ -274,7 +274,7 @@ static void elasticache_update(TSRMLS_D)
 
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
     for(i = 0; i < EC_G(endpointCount); i++) {
-        endpoint = *(endpoints + i);
+        endpoint = (endpoints + i);
 
         /* Until we rewrite the URL parsing code to only handle what we care about, harmlessly
            alias 'scheme' to 'endpointName'. */
