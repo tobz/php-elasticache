@@ -80,16 +80,8 @@ ZEND_DECLARE_MODULE_GLOBALS(elasticache)
 ZEND_GET_MODULE(elasticache)
 #endif
 
-static PHP_INI_MH(OnUpdateEndpoints)
-{
-    elasticache_debug("%s - Got updated INI value for elasticache.endpoints - parsing.", CFN);
-    elasticache_parse_endpoints(new_value TSRMLS_CC);
-
-    return SUCCESS;
-}
-
 PHP_INI_BEGIN()
-    STD_PHP_INI_ENTRY("elasticache.endpoints", "", PHP_INI_ALL, OnUpdateEndpoints, rawEndpoints, zend_elasticache_globals, elasticache_globals)
+    STD_PHP_INI_ENTRY("elasticache.endpoints", "", PHP_INI_ALL, OnUpdateString, rawEndpoints, zend_elasticache_globals, elasticache_globals)
     STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpointRefreshTimeout, zend_elasticache_globals, elasticache_globals)
 PHP_INI_END()
 
@@ -109,8 +101,7 @@ static void elasticache_debug(const char *format, ...)
 
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
 {
-    EC_G(endpoints) = NULL;
-    EC_G(endpointCount) = 0;
+    EC_G(rawEndpoints) = NULL;
     EC_G(endpointRefreshTimeout) = 250;
 
     elasticache_debug("%s - ElastiCache globals initialized.", CFN);
@@ -120,44 +111,18 @@ static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_gl
 {
 }
 
-static void elasticache_clear_endpoints(TSRMLS_D)
+static int elasticache_parse_endpoints(elasticache_endpoint ***endpoints TSRMLS_DC)
 {
-    elasticache_endpoint **endpoints = EC_G(endpoints);
-    int endpointCount = EC_G(endpointCount), i = 0;
-
-    /* Clear out the old endpoints. */
-    if(endpoints != NULL)
-    {
-        /* Free the individual endpoints. */
-        for(i = 0; i < endpointCount; i++)
-        {
-            elasticache_debug("%s - freeing endpoint object", CFN);
-            elasticache_free_endpoint(*(endpoints + i));
-        }
-
-        free(endpoints);
-
-        EC_G(endpoints) = NULL;
-    }
-
-    EC_G(endpointCount) = 0;
-
-    elasticache_debug("%s - done freeing endpoints", CFN);
-}
-
-static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
-{
+    char *rawEndpoints = NULL;
     char *rawEndpoint = NULL;
     elasticache_endpoint **parsedEndpoints = NULL;
     elasticache_endpoint *parsedEndpoint = NULL;
     int endpointCount = 0;
 
     /* If we have no endpoints, we have nothing to parse. */
+    rawEndpoints = EC_G(rawEndpoints);
     if(!rawEndpoints || !strlen(rawEndpoints))
         return;
-
-    /* Clear out any old endpoints. */
-    elasticache_clear_endpoints(TSRMLS_C);
 
     /* Go through the list of endpoints, parsing each accordingly. */
     elasticache_debug("%s - Starting to parse new endpoints.", CFN);
@@ -188,7 +153,7 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         /* Store the endpoint object. */
         elasticache_debug("%s - Found endpoint '%s' in raw list.", CFN, rawEndpoint);
 
-        parsedEndpoints = realloc(parsedEndpoints, sizeof(elasticache_endpoint*) * (endpointCount + 1));
+        parsedEndpoints = erealloc(parsedEndpoints, sizeof(elasticache_endpoint*) * (endpointCount + 1));
         parsedEndpoints[endpointCount++] = parsedEndpoint;
 
         /* Continue on. */
@@ -198,8 +163,9 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 
     /* Got em all! */
     elasticache_debug("%s - Finished parsing endpoints.", CFN);
-    EC_G(endpoints) = parsedEndpoints;
-    EC_G(endpointCount) = endpointCount;
+    *endpoints = parsedEndpoints;
+
+    return endpointCount;
 }
 
 static void elasticache_update(TSRMLS_D)
@@ -210,10 +176,11 @@ static void elasticache_update(TSRMLS_D)
     zval **existingElasticacheArr = NULL;
     zval *newElasticacheArr = NULL, *newEndpointsArr = NULL, *endpointZval = NULL;
     elasticache_cluster *cluster = NULL;
-    int i, j;
+    int i, j, endpointCount;
 
     /* If we have no endpoints, we definitely don't have anything to update. */
-    if(!EC_G(endpointCount))
+    endpointCount = elasticache_parse_endpoints(&endpoints);
+    if(!endpointCount)
     {
         elasticache_debug("%s - No endpoints present.  Skipping update.", CFN);
         return;
@@ -225,20 +192,15 @@ static void elasticache_update(TSRMLS_D)
     ALLOC_INIT_ZVAL(newElasticacheArr);
     array_init(newElasticacheArr);
 
-    endpoints = EC_G(endpoints);
-
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
-    for(i = 0; i < EC_G(endpointCount); i++) {
-        endpoint = *(endpoints + i);
-
-        /* Until we rewrite the URL parsing code to only handle what we care about, harmlessly
-           alias 'scheme' to 'endpointName'. */
-        endpointName = endpoint->scheme;
+    for(i = 0; i < endpointCount; i++) {
+        /* Just alias 'scheme' to 'endpointName'. */
+        endpointName = endpoints[i]->scheme;
 
         elasticache_debug("%s - Checking endpoint '%s' for nodes.", CFN, endpointName);
 
         /* Now contact the configuration node and see if they have anything for us. */
-        cluster = elasticache_get_cluster(endpoint, errmsg TSRMLS_CC);
+        cluster = elasticache_get_cluster(endpoints[i], errmsg TSRMLS_CC);
         if(cluster)
         {
             elasticache_debug("%s - Got %d node(s) for endpoint '%s'.", CFN, cluster->nodeCount, endpointName);
@@ -269,7 +231,11 @@ static void elasticache_update(TSRMLS_D)
             elasticache_debug("%s - got error message from elasticache_get_cluster on endpoint '%s': %s", CFN, endpointName, errmsg);
             efree(errmsg);
         }
+
+        elasticache_free_endpoint(endpoints[i]);
     }
+
+    efree(endpoints);
 
     /* $_SERVER is lazy loaded so we force it to exist before updating it. */
     elasticache_debug("%s - Ensuring $_SERVER is initialized.", CFN);

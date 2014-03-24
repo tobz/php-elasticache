@@ -63,8 +63,6 @@ typedef struct elasticache_cluster {
  */
 ZEND_BEGIN_MODULE_GLOBALS(elasticache)
     char *rawEndpoints;
-    elasticache_endpoint **endpoints;
-    int endpointCount;
     long endpointRefreshTimeout;
 ZEND_END_MODULE_GLOBALS(elasticache)
 
@@ -99,8 +97,7 @@ PHP_MINFO_FUNCTION(elasticache);
 static void elasticache_debug(const char *format, ...);
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
-static void elasticache_clear_endpoints(TSRMLS_D);
-static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC);
+static int elasticache_parse_endpoints(elasticache_endpoint ***endpoints TSRMLS_DC);
 static void elasticache_update(TSRMLS_D);
 static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoint, char *errmsg TSRMLS_DC);
 static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster *cluster);
