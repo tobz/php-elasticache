@@ -107,7 +107,7 @@ static void elasticache_clear_endpoints(TSRMLS_D);
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC);
 static void elasticache_update(TSRMLS_D);
 static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoint, char *errmsg TSRMLS_DC);
-static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster **cluster);
+static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster *cluster);
 static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC);
 static int elasticache_read_value(php_stream *stream, char *buf, int buf_len, char **value, int *value_len TSRMLS_DC);
 static int elasticache_readline(php_stream *stream, char *buf, int buf_len TSRMLS_DC);

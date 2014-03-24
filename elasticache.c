@@ -248,7 +248,7 @@ static void elasticache_update(TSRMLS_D)
     elasticache_endpoint **endpoints = NULL;
     char *endpointName = NULL, *errmsg = NULL;
     zval **existingElasticacheArr = NULL;
-    zval *newElasticacheArr = NULL, *newEndpointsArr = NULL, *newEndpointArr = NULL;
+    zval *newElasticacheArr = NULL, *newEndpointsArr = NULL, *endpointZval = NULL;
     elasticache_cluster *cluster = NULL;
     int i, j;
 
@@ -269,14 +269,14 @@ static void elasticache_update(TSRMLS_D)
     elasticache_debug("%s - attempting to refresh", CFN);
 
     /* Get our parent array to shove in $_SERVER. */
-    MAKE_STD_ZVAL(newElasticacheArr);
+    ALLOC_INIT_ZVAL(newElasticacheArr);
     array_init(newElasticacheArr);
 
     endpoints = EC_G(endpoints);
 
     /* Iterate through all endpoints, getting the nodes constituting their cluster. */
     for(i = 0; i < EC_G(endpointCount); i++) {
-        endpoint = (endpoints + i);
+        endpoint = *(endpoints + i);
 
         /* Until we rewrite the URL parsing code to only handle what we care about, harmlessly
            alias 'scheme' to 'endpointName'. */
@@ -290,7 +290,7 @@ static void elasticache_update(TSRMLS_D)
         {
             elasticache_debug("%s - got back %d node(s) for endpoint '%s'", CFN, cluster->nodeCount, endpointName);
 
-            MAKE_STD_ZVAL(newEndpointsArr);
+            ALLOC_INIT_ZVAL(newEndpointsArr);
             array_init(newEndpointsArr);
 
             /* For each node, create a separate array entry. */
@@ -298,14 +298,24 @@ static void elasticache_update(TSRMLS_D)
             {
                 endpoint = *(cluster->nodes + j);
 
-                MAKE_STD_ZVAL(newEndpointArr);
-                array_init(newEndpointArr);
+                elasticache_debug("%s - creating array entry", CFN);
 
-                add_next_index_string(newEndpointArr, endpoint->host, 1);
-                add_next_index_long(newEndpointArr, endpoint->port);
+                ALLOC_INIT_ZVAL(endpointZval);
+                array_init(endpointZval);
 
-                add_next_index_zval(newEndpointsArr, newEndpointArr);
+                elasticache_debug("%s - endpoint host: %s, endpoint: %d", CFN, endpoint->host, endpoint->port);
+
+                add_next_index_string(endpointZval, endpoint->host, 1);
+                add_next_index_long(endpointZval, endpoint->port);
+
+                elasticache_debug("%s - added host/post to array enty", CFN);
+
+                add_next_index_zval(newEndpointsArr, endpointZval);
+
+                elasticache_debug("%s - added endpoint to array", CFN);
             }
+
+            elasticache_debug("%s - add grouped array to global array", CFN);
 
             /* Add our endpoint nodes to their parent container. */
             add_assoc_zval(newElasticacheArr, endpointName, newEndpointsArr);
@@ -315,9 +325,22 @@ static void elasticache_update(TSRMLS_D)
         }
     }
 
+    elasticache_debug("%s - looking for superglobal SERVER", CFN);
+
     /* Now set the $_SERVER global with our parent array. */
+    if(!zend_hash_exists(&EG(symbol_table), "_SERVER", sizeof("_SERVER")))
+    {
+        zend_auto_global* auto_global;
+        if(zend_hash_find(CG(auto_globals), "_SERVER", sizeof("_SERVER"), (void**)&auto_global))
+        {
+            auto_global->armed = auto_global->auto_global_callback(auto_global->name, auto_global->name_len TSRMLS_CC);
+        }
+    }
+
     if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&existingElasticacheArr) == SUCCESS)
     {
+        elasticache_debug("%s - setting superglobal...", CFN);
+
         zend_hash_update(Z_ARRVAL_PP(existingElasticacheArr), "ELASTICACHE", sizeof("ELASTICACHE"), &newElasticacheArr, sizeof(zval*), NULL);
     }
 
@@ -395,7 +418,8 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
     }
 
     /* We now have our response, so now parse it. */
-    nodeCount = elasticache_parse_config(response, responseLen, &cluster);
+    cluster = malloc(sizeof(elasticache_cluster));
+    nodeCount = elasticache_parse_config(response, responseLen, cluster);
     if(!nodeCount) {
         /* No nodes... that ain't right.  Bail out, yo! */
         if(errmsg)
@@ -412,7 +436,7 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
     return cluster;
 }
 
-static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster **cluster)
+static int elasticache_parse_config(char *response, int responseLen, elasticache_cluster *cluster)
 {
     char *nodePos = NULL, *node = NULL, *currentNode = NULL, *nodeFqdn = NULL, *tmp = NULL, *nodeFull = NULL;
     char **nodes = NULL;
@@ -446,9 +470,9 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
     /* If we actually got some, create our cluster object. Allocate enough space for all the nodes
        we think we'll get, but get the node count by waiting until we parse each node entry
        successfully before incrementing. */
-    *cluster = malloc(sizeof(elasticache_cluster*));
-    (*cluster)->nodes = malloc(sizeof(elasticache_endpoint*) * nodeCount);
-    (*cluster)->nodeCount = 0;
+    elasticache_endpoint *tmpEndpoints[nodeCount];
+    cluster->nodes = emalloc(sizeof(elasticache_endpoint*) * nodeCount);
+    cluster->nodeCount = 0;
 
     /* Loop through each node and break it down, adding it to our cluster object. */
     for(i = 0; i < nodeCount; i++)
@@ -510,13 +534,13 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
         }
 
         /* Create our endpoint object. */
-        endpoint = calloc(1, sizeof(elasticache_endpoint));
+        endpoint = ecalloc(1, sizeof(elasticache_endpoint));
         endpoint->host = strdup(nodeFqdn);
         endpoint->port = nodePort;
 
         /* Store the endpoint. */
-        *((*cluster)->nodes + i) = endpoint;
-        (*cluster)->nodeCount++;
+        cluster->nodes[i] = endpoint;
+        cluster->nodeCount++;
 
         /* Free our temporary holders. */
         efree(nodeFqdn);
@@ -524,6 +548,8 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
         {
             efree(tmp);
         }
+
+        elasticache_debug("%s - setting endpoint as %s:%d", CFN, endpoint->host, endpoint->port);
     }
 
     /* Clean up old entries. */
@@ -534,7 +560,7 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
 
     efree(nodes);
 
-    return (*cluster)->nodeCount;
+    return cluster->nodeCount;
 }
 
 static int elasticache_sendcmd(php_stream *stream, char *cmd TSRMLS_DC)
