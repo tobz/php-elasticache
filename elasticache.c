@@ -147,9 +147,10 @@ static void elasticache_clear_endpoints(TSRMLS_D)
 
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 {
-    elasticache_endpoint *parsedEndpoint = NULL;
     char *rawEndpoint = NULL;
-    int parsedEndpointCount = 0;
+    elasticache_endpoint **parsedEndpoints = NULL;
+    elasticache_endpoint *parsedEndpoint = NULL;
+    int endpointCount = 0;
 
     /* If we have no endpoints, we have nothing to parse. */
     if(!rawEndpoints || !strlen(rawEndpoints))
@@ -168,14 +169,14 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         parsedEndpoint = elasticache_parse_endpoint(rawEndpoint);
         if(!parsedEndpoint)
         {
-            php_error_docref(NULL TSRMLS_CC, E_ERROR, "failed to parse ElastiCache configuration endpoint: %s", rawEndpoint);
+            php_error_docref(NULL TSRMLS_CC, E_ERROR, "Failed to parse ElastiCache configuration endpoint: %s", rawEndpoint);
             continue;
         }
 
         /* We need a scheme and host at the bare minimum. */
         if(!parsedEndpoint->scheme || !parsedEndpoint->host)
         {
-            php_error_docref(NULL TSRMLS_CC, E_ERROR, "missing endpoint name and/or endpoint host for ElastiCache: %s", rawEndpoint);
+            php_error_docref(NULL TSRMLS_CC, E_ERROR, "Missing endpoint name and/or endpoint host for ElastiCache: %s", rawEndpoint);
             continue;
         }
 
@@ -187,18 +188,18 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
         /* Store the endpoint object. */
         elasticache_debug("%s - Found endpoint '%s' in raw list.", CFN, rawEndpoint);
 
-        EC_G(endpoints) = realloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++parsedEndpointCount));
-        *(EC_G(endpoints) + (parsedEndpointCount - 1)) = parsedEndpoint;
+        parsedEndpoints = realloc(parsedEndpoints, sizeof(elasticache_endpoint*) * (endpointCount + 1));
+        parsedEndpoints[endpointCount++] = parsedEndpoint;
 
         /* Continue on. */
         elasticache_debug("%s - Trying next match in raw list.", CFN);
         rawEndpoint = strtok(NULL, ",");
     }
 
-    EC_G(endpointCount) = parsedEndpointCount;
-
     /* Got em all! */
     elasticache_debug("%s - Finished parsing endpoints.", CFN);
+    EC_G(endpoints) = parsedEndpoints;
+    EC_G(endpointCount) = endpointCount;
 }
 
 static void elasticache_update(TSRMLS_D)
