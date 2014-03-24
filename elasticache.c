@@ -372,7 +372,7 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
     }
 
     /* We now have our response, so now parse it. */
-    cluster = malloc(sizeof(elasticache_cluster));
+    cluster = ecalloc(1, sizeof(elasticache_cluster));
     nodeCount = elasticache_parse_config(response, responseLen, cluster);
     if(!nodeCount) {
         /* No nodes... that ain't right.  Bail out, yo! */
@@ -697,7 +697,7 @@ static void elasticache_free_cluster(elasticache_cluster *cluster)
     }
 
     efree(cluster->nodes);
-    /*efree(cluster);*/
+    efree(cluster);
 }
 
 static char *elasticache_replace_controlchars(char *str, int len)
