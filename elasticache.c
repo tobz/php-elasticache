@@ -92,7 +92,6 @@ static PHP_INI_MH(OnUpdateEndpoints)
 
 PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY("elasticache.endpoints", "", PHP_INI_ALL, OnUpdateEndpoints, rawEndpoints, zend_elasticache_globals, elasticache_globals)
-    STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_interval", "1000", PHP_INI_ALL, OnUpdateLong, endpointRefreshInterval, zend_elasticache_globals, elasticache_globals)
     STD_PHP_INI_ENTRY("elasticache.endpoint_refresh_timeout", "250", PHP_INI_ALL, OnUpdateLong, endpointRefreshTimeout, zend_elasticache_globals, elasticache_globals)
 PHP_INI_END()
 
@@ -114,7 +113,6 @@ static void elasticache_init_globals(zend_elasticache_globals *elasticache_globa
 {
     EC_G(endpoints) = NULL;
     EC_G(endpointCount) = 0;
-    EC_G(endpointRefreshInterval) = 1000;
     EC_G(endpointRefreshTimeout) = 250;
 
     elasticache_debug("%s - globals initialized", CFN);
@@ -122,42 +120,6 @@ static void elasticache_init_globals(zend_elasticache_globals *elasticache_globa
 
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
 {
-}
-
-static struct timeval _convert_ms_to_tv(long ms)
-{
-    struct timeval tv;
-    int seconds;
-
-    seconds = ms / 1000;
-    tv.tv_sec = seconds;
-    tv.tv_usec = ((ms - (seconds * 1000)) * 1000) % 1000000;
-
-    return tv;
-}
-
-static int elasticache_should_refresh(TSRMLS_D)
-{
-    time_t secDiff;
-    long nanoDiff, msDiff;
-    struct timespec currentTime;
-
-    /* Hard-coded to always update while testing. */
-    return 1;
-
-    /* This is our first check ever, which means we need to refresh. */
-    if(EC_G(endpointLastRefresh).tv_sec == 0)
-        return 1;
-
-    clock_gettime(CLOCK_MONOTONIC, &currentTime);
-
-    secDiff = currentTime.tv_sec - EC_G(endpointLastRefresh).tv_sec;
-    nanoDiff = currentTime.tv_nsec - EC_G(endpointLastRefresh).tv_nsec;
-
-    /* We need milliseconds here since the refresh interval is in milliseconds. */
-    msDiff = ((secDiff * 1000) + (nanoDiff / 1000000.0)) + 0.5;
-
-    return msDiff > EC_G(endpointRefreshInterval);
 }
 
 static void elasticache_clear_endpoints(TSRMLS_D)
@@ -219,7 +181,6 @@ static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
             continue;
         }
 
-        /* Use the default Memcached port if none was specified. */
         if(!endpoint->port)
         {
             endpoint->port = 11211;
@@ -251,13 +212,6 @@ static void elasticache_update(TSRMLS_D)
     zval *newElasticacheArr = NULL, *newEndpointsArr = NULL, *endpointZval = NULL;
     elasticache_cluster *cluster = NULL;
     int i, j;
-
-    /* If it's not time to refresh, bail out. */
-    if(!elasticache_should_refresh(TSRMLS_C))
-    {
-        elasticache_debug("%s - refresh attempted; not time yet", CFN);
-        return;
-    }
 
     /* If we have no endpoints, we definitely don't have anything to update. */
     if(!EC_G(endpointCount))
@@ -296,7 +250,7 @@ static void elasticache_update(TSRMLS_D)
             /* For each node, create a separate array entry. */
             for(j = 0; j < cluster->nodeCount; j++)
             {
-                endpoint = *(cluster->nodes + j);
+                endpoint = cluster->nodes[j];
 
                 elasticache_debug("%s - creating array entry", CFN);
 
@@ -319,6 +273,9 @@ static void elasticache_update(TSRMLS_D)
 
             /* Add our endpoint nodes to their parent container. */
             add_assoc_zval(newElasticacheArr, endpointName, newEndpointsArr);
+
+            /* Free our cluster struct. */
+            elasticache_free_cluster(cluster);
         } else if(errmsg) {
             elasticache_debug("%s - got error message from elasticache_grab_configuration on endpoint '%s': %s", CFN, endpointName, errmsg);
             efree(errmsg);
@@ -343,9 +300,6 @@ static void elasticache_update(TSRMLS_D)
 
         zend_hash_update(Z_ARRVAL_PP(existingElasticacheArr), "ELASTICACHE", sizeof("ELASTICACHE"), &newElasticacheArr, sizeof(zval*), NULL);
     }
-
-    /* Mark our last refresh time as now. */
-    clock_gettime(CLOCK_MONOTONIC, &EC_G(endpointLastRefresh));
 }
 
 static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoint, char *errmsg TSRMLS_DC)
@@ -430,6 +384,7 @@ static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoi
     }
 
     /* Close our stream since we're all done. */
+    efree(response);
     php_stream_close(stream);
     stream = NULL;
 
@@ -730,6 +685,19 @@ static void elasticache_free_endpoint(elasticache_endpoint *endpoint)
     EC_STRFREE(endpoint->fragment)
 
     free(endpoint);
+}
+
+static void elasticache_free_cluster(elasticache_cluster *cluster)
+{
+    int i;
+
+    for(i = 0; i < cluster->nodeCount; i++)
+    {
+        efree(cluster->nodes[i]);
+    }
+
+    efree(cluster->nodes);
+    /*efree(cluster);*/
 }
 
 static char *elasticache_replace_controlchars(char *str, int len)

@@ -65,9 +65,7 @@ ZEND_BEGIN_MODULE_GLOBALS(elasticache)
     char *rawEndpoints;
     elasticache_endpoint **endpoints;
     int endpointCount;
-    long endpointRefreshInterval;
     long endpointRefreshTimeout;
-    struct timespec endpointLastRefresh;
 ZEND_END_MODULE_GLOBALS(elasticache)
 
 #ifdef ZTS
@@ -101,8 +99,6 @@ PHP_MINFO_FUNCTION(elasticache);
 static void elasticache_debug(const char *format, ...);
 static void elasticache_init_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC);
-static struct timeval _convert_ms_to_tv(long ms);
-static int elasticache_should_refresh(TSRMLS_D);
 static void elasticache_clear_endpoints(TSRMLS_D);
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC);
 static void elasticache_update(TSRMLS_D);
@@ -114,6 +110,7 @@ static int elasticache_readline(php_stream *stream, char *buf, int buf_len TSRML
 static int elasticache_parse_response(char *response, int response_len, char **key, int *key_len, int *flags, int *value_len);
 static int elasticache_str_left(char *haystack, char *needle, int haystack_len, int needle_len);
 static void elasticache_free_endpoint(elasticache_endpoint *url);
+static void elasticache_free_cluster(elasticache_cluster *cluster);
 static char* elasticache_replace_controlchars(char *str, int len);
 static elasticache_endpoint *elasticache_parse_endpoint(char *s);
 
