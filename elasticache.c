@@ -82,9 +82,7 @@ ZEND_GET_MODULE(elasticache)
 
 static PHP_INI_MH(OnUpdateEndpoints)
 {
-    elasticache_debug("%s - endpoints INI value updated", CFN);
-
-    /* Parse the endpoints into a list of endpoint name -> host[:port] */
+    elasticache_debug("%s - Got updated INI value for elasticache.endpoints - parsing.", CFN);
     elasticache_parse_endpoints(new_value TSRMLS_CC);
 
     return SUCCESS;
@@ -115,7 +113,7 @@ static void elasticache_init_globals(zend_elasticache_globals *elasticache_globa
     EC_G(endpointCount) = 0;
     EC_G(endpointRefreshTimeout) = 250;
 
-    elasticache_debug("%s - globals initialized", CFN);
+    elasticache_debug("%s - ElastiCache globals initialized.", CFN);
 }
 
 static void elasticache_destroy_globals(zend_elasticache_globals *elasticache_globals_p TSRMLS_DC)
@@ -149,58 +147,58 @@ static void elasticache_clear_endpoints(TSRMLS_D)
 
 static void elasticache_parse_endpoints(char *rawEndpoints TSRMLS_DC)
 {
-    elasticache_endpoint *endpoint = NULL;
+    elasticache_endpoint *parsedEndpoint = NULL;
     char *rawEndpoint = NULL;
-    int endpointCount = 0;
+    int parsedEndpointCount = 0;
 
     /* If we have no endpoints, we have nothing to parse. */
     if(!rawEndpoints || !strlen(rawEndpoints))
         return;
 
-    /* Clear out the old endpoints. */
+    /* Clear out any old endpoints. */
     elasticache_clear_endpoints(TSRMLS_C);
 
     /* Go through the list of endpoints, parsing each accordingly. */
-    elasticache_debug("%s - starting to parse endpoints", CFN);
+    elasticache_debug("%s - Starting to parse new endpoints.", CFN);
 
     rawEndpoint = strtok(rawEndpoints, ",");
     while(rawEndpoint)
     {
         /* Try to parse this as a URL, since our format is basically a URL. */
-        endpoint = elasticache_parse_endpoint(rawEndpoint);
-        if(!endpoint)
+        parsedEndpoint = elasticache_parse_endpoint(rawEndpoint);
+        if(!parsedEndpoint)
         {
             php_error_docref(NULL TSRMLS_CC, E_ERROR, "failed to parse ElastiCache configuration endpoint: %s", rawEndpoint);
             continue;
         }
 
         /* We need a scheme and host at the bare minimum. */
-        if(!endpoint->scheme || !endpoint->host)
+        if(!parsedEndpoint->scheme || !parsedEndpoint->host)
         {
             php_error_docref(NULL TSRMLS_CC, E_ERROR, "missing endpoint name and/or endpoint host for ElastiCache: %s", rawEndpoint);
             continue;
         }
 
-        if(!endpoint->port)
+        if(!parsedEndpoint->port)
         {
-            endpoint->port = 11211;
+            parsedEndpoint->port = 11211;
         }
 
         /* Store the endpoint object. */
-        elasticache_debug("%s - found endpoint '%s' from list, adding", CFN, rawEndpoint);
+        elasticache_debug("%s - Found endpoint '%s' in raw list.", CFN, rawEndpoint);
 
-        EC_G(endpoints) = realloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++endpointCount));
-        *(EC_G(endpoints) + (endpointCount - 1)) = endpoint;
+        EC_G(endpoints) = realloc(EC_G(endpoints), (sizeof(elasticache_endpoint*) * ++parsedEndpointCount));
+        *(EC_G(endpoints) + (parsedEndpointCount - 1)) = parsedEndpoint;
 
         /* Continue on. */
-        elasticache_debug("%s - trying next match in list", CFN);
+        elasticache_debug("%s - Trying next match in raw list.", CFN);
         rawEndpoint = strtok(NULL, ",");
     }
 
-    EC_G(endpointCount) = endpointCount;
+    EC_G(endpointCount) = parsedEndpointCount;
 
     /* Got em all! */
-    elasticache_debug("%s - all done parsing endpoints", CFN);
+    elasticache_debug("%s - Finished parsing endpoints.", CFN);
 }
 
 static void elasticache_update(TSRMLS_D)
@@ -216,11 +214,11 @@ static void elasticache_update(TSRMLS_D)
     /* If we have no endpoints, we definitely don't have anything to update. */
     if(!EC_G(endpointCount))
     {
-        elasticache_debug("%s - refresh attempted, but no endpoints", CFN);
+        elasticache_debug("%s - No endpoints present.  Skipping update.", CFN);
         return;
     }
 
-    elasticache_debug("%s - attempting to refresh", CFN);
+    elasticache_debug("%s - Starting refresh process.", CFN);
 
     /* Get our parent array to shove in $_SERVER. */
     ALLOC_INIT_ZVAL(newElasticacheArr);
@@ -236,13 +234,13 @@ static void elasticache_update(TSRMLS_D)
            alias 'scheme' to 'endpointName'. */
         endpointName = endpoint->scheme;
 
-        elasticache_debug("%s - found endpoint '%s' while going down our list of endpoints", CFN, endpointName);
+        elasticache_debug("%s - Checking endpoint '%s' for nodes.", CFN, endpointName);
 
         /* Now contact the configuration node and see if they have anything for us. */
         cluster = elasticache_get_cluster(endpoint, errmsg TSRMLS_CC);
         if(cluster)
         {
-            elasticache_debug("%s - got back %d node(s) for endpoint '%s'", CFN, cluster->nodeCount, endpointName);
+            elasticache_debug("%s - Got %d node(s) for endpoint '%s'.", CFN, cluster->nodeCount, endpointName);
 
             ALLOC_INIT_ZVAL(newEndpointsArr);
             array_init(newEndpointsArr);
@@ -252,24 +250,14 @@ static void elasticache_update(TSRMLS_D)
             {
                 endpoint = cluster->nodes[j];
 
-                elasticache_debug("%s - creating array entry", CFN);
-
                 ALLOC_INIT_ZVAL(endpointZval);
                 array_init(endpointZval);
-
-                elasticache_debug("%s - endpoint host: %s, endpoint: %d", CFN, endpoint->host, endpoint->port);
 
                 add_next_index_string(endpointZval, endpoint->host, 1);
                 add_next_index_long(endpointZval, endpoint->port);
 
-                elasticache_debug("%s - added host/post to array enty", CFN);
-
                 add_next_index_zval(newEndpointsArr, endpointZval);
-
-                elasticache_debug("%s - added endpoint to array", CFN);
             }
-
-            elasticache_debug("%s - add grouped array to global array", CFN);
 
             /* Add our endpoint nodes to their parent container. */
             add_assoc_zval(newElasticacheArr, endpointName, newEndpointsArr);
@@ -277,14 +265,14 @@ static void elasticache_update(TSRMLS_D)
             /* Free our cluster struct. */
             elasticache_free_cluster(cluster);
         } else if(errmsg) {
-            elasticache_debug("%s - got error message from elasticache_grab_configuration on endpoint '%s': %s", CFN, endpointName, errmsg);
+            elasticache_debug("%s - got error message from elasticache_get_cluster on endpoint '%s': %s", CFN, endpointName, errmsg);
             efree(errmsg);
         }
     }
 
-    elasticache_debug("%s - looking for superglobal SERVER", CFN);
+    /* $_SERVER is lazy loaded so we force it to exist before updating it. */
+    elasticache_debug("%s - Ensuring $_SERVER is initialized.", CFN);
 
-    /* Now set the $_SERVER global with our parent array. */
     if(!zend_hash_exists(&EG(symbol_table), "_SERVER", sizeof("_SERVER")))
     {
         zend_auto_global* auto_global;
@@ -294,12 +282,15 @@ static void elasticache_update(TSRMLS_D)
         }
     }
 
+    /* Anddd store our cluster information. */
     if(zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void**)&existingElasticacheArr) == SUCCESS)
     {
-        elasticache_debug("%s - setting superglobal...", CFN);
+        elasticache_debug("%s - Setting ElastiCache information in $_SERVER.", CFN);
 
         zend_hash_update(Z_ARRVAL_PP(existingElasticacheArr), "ELASTICACHE", sizeof("ELASTICACHE"), &newElasticacheArr, sizeof(zval*), NULL);
     }
+
+    elasticache_debug("%s - Refresh complete.", CFN);
 }
 
 static elasticache_cluster* elasticache_get_cluster(elasticache_endpoint *endpoint, char *errmsg TSRMLS_DC)
@@ -503,8 +494,6 @@ static int elasticache_parse_config(char *response, int responseLen, elasticache
         {
             efree(tmp);
         }
-
-        elasticache_debug("%s - setting endpoint as %s:%d", CFN, endpoint->host, endpoint->port);
     }
 
     /* Clean up old entries. */
